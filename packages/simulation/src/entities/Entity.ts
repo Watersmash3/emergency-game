@@ -1,3 +1,4 @@
+import type { Interactable } from '../components/interactable.ts';
 import type { Movement } from '../components/movement.ts';
 import type { Position } from '../components/position.ts';
 import type { Responder } from '../components/responder.ts';
@@ -10,4 +11,5 @@ export interface Entity {
   movement?: Movement;
   responder?: Responder;
   teamMembership?: TeamMembership;
+  interactable?: Interactable;
 }

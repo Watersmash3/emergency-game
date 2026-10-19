@@ -10,6 +10,10 @@ export function makeScenario(
     responders?: Scenario['responders'];
     memberIds?: string[];
     speed?: number;
+    objects?: Scenario['objects'];
+    equipmentCatalog?: Scenario['equipmentCatalog'];
+    equipment?: Scenario['equipment'];
+    inventoryCapacity?: number;
   } = {},
 ): Scenario {
   const responders = input.responders ?? [
@@ -30,6 +34,10 @@ export function makeScenario(
       memberIds: input.memberIds ?? responders.map((responder) => responder.id),
     },
     responders,
+    ...(input.objects ? { objects: input.objects } : {}),
+    ...(input.equipmentCatalog ? { equipmentCatalog: input.equipmentCatalog } : {}),
+    ...(input.equipment ? { equipment: input.equipment } : {}),
+    ...(input.inventoryCapacity ? { inventoryCapacity: input.inventoryCapacity } : {}),
   });
 }
 

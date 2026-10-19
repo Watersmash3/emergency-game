@@ -2,7 +2,7 @@
 
 A single-player, browser-based tactical emergency response game. The player commands a team or an individual responder. The simulation runs locally in a web worker and does not depend on the renderer.
 
-This repository is the playable foundation: an isometric training yard, four responders, team movement, individual overrides, and tactical pause.
+This repository is a playable training yard: four responders, team movement, individual overrides, equipment retrieval, and a locked door that can be forced.
 
 ## Prerequisites
 
@@ -32,16 +32,17 @@ pnpm build
 
 ## Controls
 
-| Input             | Action                         |
-| ----------------- | ------------------------------ |
-| Left-click        | Select a responder             |
-| Team header       | Select the whole team          |
-| Right-click       | Move the current selection     |
-| Space or Pause    | Pause or resume the simulation |
-| Mouse wheel       | Zoom                           |
-| Middle mouse drag | Pan                            |
+| Input             | Action                                         |
+| ----------------- | ---------------------------------------------- |
+| Left-click        | Select a responder                             |
+| Team header       | Select the whole team                          |
+| Right-click       | Move the selection, or interact with an object |
+| Object action     | Retrieve, force a door, or operate a panel     |
+| Space or Pause    | Pause or resume the simulation                 |
+| Mouse wheel       | Zoom                                           |
+| Middle mouse drag | Pan                                            |
 
-Orders can be issued while paused. Units do not move until the simulation resumes.
+Orders can be issued while paused. Units do not move, and interactions do not progress, until the simulation resumes. A responder carries at most two items. Forcing the training door fetches a Halligan tool from the staging locker when the responder does not already have one.
 
 ## Compatibility
 

@@ -1,23 +1,15 @@
 import type { Command, Tile } from '@emergency/protocol';
 
-import type { Entity } from '../entities/Entity.ts';
+import type { World } from '../core/world.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { inBounds, isBlocked, isWalkable, manhattan, tileOf } from '../navigation/grid.ts';
-import type { MoveTask } from '../tasks/MoveTask.ts';
-import { transition } from '../tasks/transitions.ts';
-import type { World } from '../core/world.ts';
+import { applyInteractionCommand } from './interactions.ts';
+import { cancelTask, clearRoute, isOpen, nextIdentifier, overrideWith } from './lifecycle.ts';
+import { CommandRejection, type CommandResult } from './results.ts';
+import { transition } from './transitions.ts';
+import type { MoveTask } from './types.ts';
 
-export const CommandRejection = {
-  UnknownResponder: 'Unknown responder',
-  UnknownTeam: 'Unknown team',
-  OutOfBounds: 'Destination is out of bounds',
-  Blocked: 'Destination is blocked',
-  NoPath: 'No path to destination',
-} as const;
-
-export type CommandResult = { ok: true } | { ok: false; reason: string };
-
-const OPEN_STATES = new Set<MoveTask['state']>(['pending', 'ready', 'running', 'suspended']);
+export { CommandRejection, type CommandResult } from './results.ts';
 
 /** Nearby walkable tiles considered when spacing a team around an order. */
 const STAGING_CANDIDATES = 16;
@@ -34,6 +26,12 @@ export function applyCommand(world: World, command: Command): CommandResult {
       return moveResponder(world, command.responderId, command.destination);
     case 'move-team':
       return moveTeam(world, command.teamId, command.destination);
+    case 'retrieve-equipment':
+    case 'force-door':
+    case 'operate-panel':
+    case 'retrieve-team':
+    case 'cancel-task':
+      return applyInteractionCommand(world, command);
     default: {
       const unreachable: never = command;
       return unreachable;
@@ -56,32 +54,13 @@ function moveResponder(world: World, responderId: string, destination: Tile): Co
     return { ok: false, reason: CommandRejection.NoPath };
   }
 
-  cancelTasks(
-    world,
-    responderId,
-    (task) => task.source === 'individual' && task.state === 'running',
-  );
-
   const task = createMoveTask(world, {
     assigneeId: responderId,
     source: 'individual',
     destination,
     reachable: true,
   });
-
-  const teamTask = [...world.tasks.values()].find(
-    (candidate) =>
-      candidate.assigneeId === responderId &&
-      candidate.source === 'team' &&
-      (candidate.state === 'running' || candidate.state === 'suspended'),
-  );
-  if (teamTask?.state === 'running') {
-    transition(teamTask, 'suspended');
-    teamTask.suspendedByTaskId = task.id;
-  } else if (teamTask?.state === 'suspended') {
-    teamTask.suspendedByTaskId = task.id;
-  }
-
+  overrideWith(world, responderId, task.id);
   clearRoute(entity);
   return { ok: true };
 }
@@ -121,7 +100,10 @@ function moveTeam(world: World, teamId: string, destination: Tile): CommandResul
 
   const groupId = nextIdentifier(world, 'group');
   for (const memberId of world.team.memberIds) {
-    cancelTasks(world, memberId, (task) => OPEN_STATES.has(task.state));
+    for (const task of [...world.tasks.values()]) {
+      if (task.assigneeId === memberId && !task.parentId && isOpen(task.state))
+        cancelTask(world, task);
+    }
     const tile = assignments.get(memberId) ?? null;
     createMoveTask(world, {
       assigneeId: memberId,
@@ -154,6 +136,7 @@ function createMoveTask(
     assigneeId: input.assigneeId,
     source: input.source,
     destination: { ...input.destination },
+    reservations: [],
   };
   if (input.groupId) task.groupId = input.groupId;
 
@@ -167,15 +150,6 @@ function createMoveTask(
 
   world.tasks.set(task.id, task);
   return task;
-}
-
-function cancelTasks(world: World, assigneeId: string, include: (task: MoveTask) => boolean): void {
-  for (const task of world.tasks.values()) {
-    if (task.assigneeId !== assigneeId || !include(task)) continue;
-    if (!OPEN_STATES.has(task.state)) continue;
-    transition(task, 'cancelled');
-    task.suspendedByTaskId = undefined;
-  }
 }
 
 function candidateTiles(world: World, goal: Tile): Tile[] {
@@ -199,16 +173,4 @@ function candidateTiles(world: World, goal: Tile): Tile[] {
   });
 
   return tiles.slice(0, STAGING_CANDIDATES);
-}
-
-function clearRoute(entity: Entity): void {
-  if (!entity.movement) return;
-  entity.movement.path = [];
-  entity.movement.destination = null;
-}
-
-function nextIdentifier(world: World, prefix: string): string {
-  const id = `${prefix}-${world.nextId}`;
-  world.nextId += 1;
-  return id;
 }

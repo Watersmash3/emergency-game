@@ -4,9 +4,10 @@ import type { Tile, Vec2 } from '@emergency/protocol';
 import type { Entity } from '../entities/Entity.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { sameTile, tileCenter, tileOf } from '../navigation/grid.ts';
-import type { MoveTask } from '../tasks/MoveTask.ts';
-import { transition } from '../tasks/transitions.ts';
 import type { World } from '../core/world.ts';
+import { tryResume } from '../tasks/lifecycle.ts';
+import { transition } from '../tasks/transitions.ts';
+import type { MoveTask } from '../tasks/types.ts';
 
 const ARRIVAL_DISTANCE = 0.001;
 
@@ -42,13 +43,14 @@ export function stepMovement(world: World): void {
   }
 
   for (const taskId of completed) {
-    resumeSuspendedBy(world, taskId);
+    tryResume(world, taskId);
   }
 }
 
 export function runningMoveTask(world: World, assigneeId: string): MoveTask | undefined {
   const running = [...world.tasks.values()].filter(
-    (task) => task.assigneeId === assigneeId && task.kind === 'move' && task.state === 'running',
+    (task): task is MoveTask =>
+      task.assigneeId === assigneeId && task.kind === 'move' && task.state === 'running',
   );
   running.sort((a, b) => {
     if (a.source !== b.source) return a.source === 'individual' ? -1 : 1;
@@ -110,18 +112,6 @@ function finishMove(world: World, entity: Entity, task: MoveTask, completed: str
   transition(task, 'completed');
   if (entity.movement) entity.movement.path = [];
   completed.push(task.id);
-}
-
-function resumeSuspendedBy(world: World, completedTaskId: string): void {
-  for (const task of world.tasks.values()) {
-    if (task.state !== 'suspended' || task.suspendedByTaskId !== completedTaskId) continue;
-    transition(task, 'running');
-    task.suspendedByTaskId = undefined;
-    const entity = world.entities.get(task.assigneeId);
-    if (!entity?.movement) continue;
-    entity.movement.path = [];
-    entity.movement.destination = null;
-  }
 }
 
 function distance(a: Vec2, b: Vec2): number {

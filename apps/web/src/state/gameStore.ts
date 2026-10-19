@@ -1,7 +1,11 @@
 import type { Command, SimulationSnapshot, WorkerOutbound } from '@emergency/protocol';
 import { create } from 'zustand';
 
-export type Selection = { kind: 'responder'; id: string } | { kind: 'team'; id: string } | null;
+export type Selection =
+  | { kind: 'responder'; id: string }
+  | { kind: 'team'; id: string }
+  | { kind: 'object'; id: string }
+  | null;
 
 export interface CommandResultView {
   commandId: string;
@@ -19,6 +23,7 @@ interface GameState {
   applyOutbound: (message: WorkerOutbound) => void;
   selectResponder: (id: string) => void;
   selectTeam: (id: string) => void;
+  selectObject: (id: string) => void;
   clearSelection: () => void;
   reset: () => void;
 }
@@ -58,6 +63,7 @@ export const useGameStore = create<GameState>((set) => ({
   },
   selectResponder: (id) => set({ selection: { kind: 'responder', id } }),
   selectTeam: (id) => set({ selection: { kind: 'team', id } }),
+  selectObject: (id) => set({ selection: { kind: 'object', id } }),
   clearSelection: () => set({ selection: null }),
   reset: () => set(initial),
 }));

@@ -1,0 +1,22 @@
+export const CommandRejection = {
+  UnknownResponder: 'Unknown responder',
+  UnknownTeam: 'Unknown team',
+  OutOfBounds: 'Destination is out of bounds',
+  Blocked: 'Destination is blocked',
+  NoPath: 'No path to destination',
+  UnknownObject: 'Unknown object',
+  Unsupported: 'Object does not support that action',
+  NoEquipment: 'No equipment available',
+  Reserved: 'Equipment is reserved',
+  InventoryFull: 'Inventory is full',
+  ToolRequired: 'Halligan tool required',
+  DoorOpen: 'Door is already open',
+  PanelUsed: 'Panel is already operated',
+  NotAtPosition: 'Not at an interaction position',
+  EquipmentGone: 'Equipment is no longer available',
+  Cancelled: 'Task was cancelled',
+  UnknownTask: 'Unknown task',
+  Finished: 'Task is already finished',
+} as const;
+
+export type CommandResult = { ok: true } | { ok: false; reason: string };

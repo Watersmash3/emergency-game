@@ -150,6 +150,10 @@ h1 {
   outline: 2px solid #7ecbff;
 }
 
+.roster .action {
+  margin-top: 4px;
+}
+
 .roster small,
 .help,
 .detail p {

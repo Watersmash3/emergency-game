@@ -16,8 +16,9 @@ An entity has a stable string id and optional components:
 - `movement`: speed, remaining waypoints, and the tile the current path was planned for.
 - `responder`: display name.
 - `teamMembership`: team id.
+- `interactable`: object type, state, required capability, and the tiles a responder must stand on.
 
-The training yard's team is a record of member ids, not an entity. Obstacles are blocked cells on the navigation grid, not entities.
+The training yard's team is a record of member ids, not an entity. Obstacles are blocked cells on the navigation grid. A locked door is also a blocked cell until a force-door task opens it. Equipment instances live beside the entities: each one is in a locker or carried by one responder, and a task may reserve it.
 
 ## Navigation
 
@@ -33,4 +34,4 @@ The worker posts a snapshot after every accepted or rejected command, and after 
 
 ## Snapshot
 
-`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, entities, and tasks. Entity paths are included so the renderer can draw them without pathfinding. The object survives `JSON.parse(JSON.stringify(snapshot))`. IndexedDB is not wired up; this object is the boundary it will use.
+`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, inventory capacity, and tasks. Entity paths are included so the renderer can draw them without pathfinding. The object survives `JSON.parse(JSON.stringify(snapshot))`. IndexedDB is not wired up; this object is the boundary it will use.

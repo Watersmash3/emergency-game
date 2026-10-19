@@ -13,6 +13,13 @@ describe('protocol schemas', () => {
     ).toBe(true);
 
     expect(commandSchema.safeParse({ type: 'extinguish' }).success).toBe(false);
+    expect(
+      commandSchema.safeParse({
+        type: 'force-door',
+        responderId: 'ff-hayes',
+        doorId: 'door-training',
+      }).success,
+    ).toBe(true);
   });
 
   it('rejects a scenario with no responders', () => {

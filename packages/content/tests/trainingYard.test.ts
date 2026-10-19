@@ -9,5 +9,12 @@ describe('training yard', () => {
       trainingYard.responders.map((responder) => responder.id),
     );
     expect(trainingYard.blocked.length).toBeGreaterThan(0);
+    expect(trainingYard.objects.map((object) => object.objectType)).toEqual([
+      'locker',
+      'door',
+      'panel',
+    ]);
+    expect(trainingYard.equipment).toHaveLength(3);
+    expect(trainingYard.blocked).toContainEqual({ x: 10, y: 12 });
   });
 });

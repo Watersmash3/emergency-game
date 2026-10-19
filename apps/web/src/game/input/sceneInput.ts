@@ -1,14 +1,20 @@
+import type { ObjectSnapshot } from '@emergency/protocol';
 import Phaser from 'phaser';
 
-import { sendCommand, useGameStore } from '../../state/gameStore.ts';
+import { sendCommand, useGameStore, type Selection } from '../../state/gameStore.ts';
 import { screenToTile } from '../rendering/iso.ts';
+
+export interface SceneHit {
+  kind: 'responder' | 'object';
+  id: string;
+}
 
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.2;
 
 export function bindSceneInput(
   scene: Phaser.Scene,
-  hitTest: (worldX: number, worldY: number) => string | null,
+  hitTest: (worldX: number, worldY: number) => SceneHit | null,
 ): void {
   scene.input.mouse?.disableContextMenu();
 
@@ -24,14 +30,16 @@ export function bindSceneInput(
     }
 
     const world = scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const hit = hitTest(world.x, world.y);
     if (pointer.button === 2) {
-      issueMove(screenToTile(world.x, world.y));
+      if (hit?.kind === 'object') issueInteraction(hit.id);
+      else issueMove(screenToTile(world.x, world.y));
       return;
     }
     if (pointer.button !== 0) return;
 
-    const responderId = hitTest(world.x, world.y);
-    if (responderId) useGameStore.getState().selectResponder(responderId);
+    if (hit?.kind === 'object') useGameStore.getState().selectObject(hit.id);
+    else if (hit?.kind === 'responder') useGameStore.getState().selectResponder(hit.id);
     else useGameStore.getState().clearSelection();
   });
 
@@ -56,12 +64,43 @@ export function bindSceneInput(
   );
 }
 
+function issueInteraction(objectId: string): void {
+  const { selection, snapshot } = useGameStore.getState();
+  const object = snapshot?.objects.find((candidate) => candidate.id === objectId);
+  if (!object) return;
+  const command = commandFor(selection, object);
+  if (command) sendCommand(command);
+  else useGameStore.getState().selectObject(objectId);
+}
+
+export function commandFor(selection: Selection, object: ObjectSnapshot) {
+  if (selection?.kind === 'team' && object.objectType === 'locker') {
+    return { type: 'retrieve-team' as const, teamId: selection.id, lockerId: object.id };
+  }
+  if (selection?.kind !== 'responder') return null;
+  if (object.objectType === 'door') {
+    return { type: 'force-door' as const, responderId: selection.id, doorId: object.id };
+  }
+  if (object.objectType === 'panel') {
+    return { type: 'operate-panel' as const, responderId: selection.id, panelId: object.id };
+  }
+  const item = object.contents.find((content) => !content.reserved) ?? object.contents[0];
+  if (!item) return null;
+  return {
+    type: 'retrieve-equipment' as const,
+    responderId: selection.id,
+    lockerId: object.id,
+    definitionId: item.definitionId,
+  };
+}
+
 function issueMove(destination: { x: number; y: number }): void {
   const selection = useGameStore.getState().selection;
-  if (!selection) return;
-  if (selection.kind === 'responder') {
+  if (selection?.kind === 'responder') {
     sendCommand({ type: 'move-responder', responderId: selection.id, destination });
     return;
   }
-  sendCommand({ type: 'move-team', teamId: selection.id, destination });
+  if (selection?.kind === 'team') {
+    sendCommand({ type: 'move-team', teamId: selection.id, destination });
+  }
 }

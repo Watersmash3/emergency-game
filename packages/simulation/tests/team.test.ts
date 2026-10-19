@@ -25,10 +25,12 @@ describe('team orders and individual overrides', () => {
     const running = sim.getSnapshot().tasks.filter((task) => task.state === 'running');
     expect(running).toHaveLength(2);
     expect(running.every((task) => task.source === 'team' && task.groupId)).toBe(true);
-    expect(new Set(running.map((task) => `${task.destination.x},${task.destination.y}`)).size).toBe(
-      2,
-    );
-    expect(running.some((task) => task.destination.x === 6 && task.destination.y === 4)).toBe(true);
+    const destinations = running.map((task) => {
+      if (task.kind !== 'move') throw new Error('expected a move task');
+      return `${task.destination.x},${task.destination.y}`;
+    });
+    expect(new Set(destinations).size).toBe(2);
+    expect(destinations).toContain('6,4');
   });
 
   it('suspends only the overridden member and lets the others keep moving', () => {
@@ -93,7 +95,8 @@ describe('team orders and individual overrides', () => {
         .tasks.find((task) => task.assigneeId === 'a' && task.source === 'individual')?.state,
     ).toBe('completed');
 
-    const goal = resumed?.destination ?? { x: 8, y: 0 };
+    if (resumed?.kind !== 'move') throw new Error('expected a move task');
+    const goal = resumed.destination;
     const before = entityAt(sim, 'a').position;
     const beforeDistance = Math.hypot(goal.x + 0.5 - before.x, goal.y + 0.5 - before.y);
     for (let tick = 0; tick < 8; tick += 1) sim.tick();

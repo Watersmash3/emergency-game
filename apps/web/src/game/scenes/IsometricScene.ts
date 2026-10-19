@@ -1,20 +1,22 @@
-import type { SimulationSnapshot } from '@emergency/protocol';
+import type { ObjectSnapshot, SimulationSnapshot } from '@emergency/protocol';
 import { FIXED_DT_MS } from '@emergency/protocol';
 import Phaser from 'phaser';
 
 import { useGameStore } from '../../state/gameStore.ts';
-import { bindSceneInput } from '../input/sceneInput.ts';
+import { bindSceneInput, type SceneHit } from '../input/sceneInput.ts';
 import { worldToScreen } from '../rendering/iso.ts';
 import { createPlaceholderTextures } from '../rendering/textures.ts';
 
-interface ResponderView {
+interface SpriteView {
   token: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.Text;
 }
 
 export class IsometricScene extends Phaser.Scene {
   private unsubscribe?: () => void;
-  private readonly sprites = new Map<string, ResponderView>();
+  private readonly sprites = new Map<string, SpriteView>();
+  private readonly objectSprites = new Map<string, SpriteView>();
+  private readonly tileImages = new Map<string, Phaser.GameObjects.Image>();
   private pathGraphics?: Phaser.GameObjects.Graphics;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private mapReady = false;
@@ -61,7 +63,9 @@ export class IsometricScene extends Phaser.Scene {
       this.mapReady = true;
       this.centerCamera(snapshot);
     }
+    this.refreshBlocked(snapshot);
     this.ensureSprites(snapshot);
+    this.ensureObjects(snapshot);
   }
 
   private buildMap(snapshot: SimulationSnapshot): void {
@@ -74,13 +78,15 @@ export class IsometricScene extends Phaser.Scene {
     for (let y = 0; y < snapshot.height; y += 1) {
       for (let x = 0; x < snapshot.width; x += 1) {
         const screen = worldToScreen(x + 0.5, y + 0.5);
+        const key = `${x},${y}`;
         const image = this.add.image(
           screen.x,
           screen.y,
-          blocked.has(`${x},${y}`) ? 'tile-blocked' : 'tile-ground',
+          blocked.has(key) ? 'tile-blocked' : 'tile-ground',
         );
         image.setOrigin(0.5, 0.5);
         image.setDepth(screen.y);
+        this.tileImages.set(key, image);
         minX = Math.min(minX, screen.x);
         minY = Math.min(minY, screen.y);
         maxX = Math.max(maxX, screen.x);
@@ -89,7 +95,12 @@ export class IsometricScene extends Phaser.Scene {
     }
 
     const pad = 160;
-    this.cameras.main.setBounds(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
+    this.cameras.main.setBounds(
+      minX - pad,
+      minY - pad,
+      maxX - minX + pad * 2,
+      maxY - minY + pad * 2,
+    );
   }
 
   private centerCamera(snapshot: SimulationSnapshot): void {
@@ -107,6 +118,13 @@ export class IsometricScene extends Phaser.Scene {
     );
   }
 
+  private refreshBlocked(snapshot: SimulationSnapshot): void {
+    const blocked = new Set(snapshot.blocked.map((tile) => `${tile.x},${tile.y}`));
+    for (const [key, image] of this.tileImages) {
+      image.setTexture(blocked.has(key) ? 'tile-blocked' : 'tile-ground');
+    }
+  }
+
   private ensureSprites(snapshot: SimulationSnapshot): void {
     snapshot.entities.forEach((entity, index) => {
       if (this.sprites.has(entity.id)) return;
@@ -122,6 +140,32 @@ export class IsometricScene extends Phaser.Scene {
         .setOrigin(0.5, 1);
       this.sprites.set(entity.id, { token, label });
     });
+  }
+
+  private ensureObjects(snapshot: SimulationSnapshot): void {
+    for (const object of snapshot.objects) {
+      const screen = worldToScreen(object.position.x + 0.5, object.position.y + 0.5);
+      let view = this.objectSprites.get(object.id);
+      if (!view) {
+        const token = this.add.image(screen.x, screen.y, textureFor(object)).setOrigin(0.5, 0.5);
+        const label = this.add
+          .text(screen.x, screen.y - 22, object.name, {
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: '12px',
+            color: '#f4f7f5',
+            stroke: '#102018',
+            strokeThickness: 3,
+          })
+          .setOrigin(0.5, 1);
+        view = { token, label };
+        this.objectSprites.set(object.id, view);
+      }
+      view.token.setTexture(textureFor(object));
+      view.token.setPosition(screen.x, screen.y);
+      view.label.setPosition(screen.x, screen.y - 22);
+      view.token.setDepth(screen.y + 6);
+      view.label.setDepth(screen.y + 7);
+    }
   }
 
   private interpolate(): void {
@@ -170,25 +214,45 @@ export class IsometricScene extends Phaser.Scene {
     this.selectionGraphics.clear();
     if (!snapshot || !selection) return;
 
-    const ids = selection.kind === 'team' ? snapshot.team.memberIds : [selection.id];
+    const ids =
+      selection.kind === 'team'
+        ? snapshot.team.memberIds
+        : selection.kind === 'object'
+          ? []
+          : [selection.id];
     this.selectionGraphics.lineStyle(2, selection.kind === 'team' ? 0x8ee0b2 : 0x7ecbff, 1);
     for (const id of ids) {
       const view = this.sprites.get(id);
       if (!view) continue;
       this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 18);
     }
+    if (selection.kind === 'object') {
+      const view = this.objectSprites.get(selection.id);
+      if (!view) return;
+      this.selectionGraphics.lineStyle(2, 0xe2b657, 1);
+      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 16);
+    }
   }
 
-  private hitTest(worldX: number, worldY: number): string | null {
-    let bestId: string | null = null;
+  private hitTest(worldX: number, worldY: number): SceneHit | null {
+    let best: SceneHit | null = null;
     let bestDistance = 22;
-    for (const [id, view] of this.sprites) {
+    const consider = (kind: SceneHit['kind'], id: string, view: SpriteView) => {
       const distance = Phaser.Math.Distance.Between(worldX, worldY, view.token.x, view.token.y);
       if (distance < bestDistance) {
         bestDistance = distance;
-        bestId = id;
+        best = { kind, id };
       }
-    }
-    return bestId;
+    };
+    for (const [id, view] of this.objectSprites) consider('object', id, view);
+    for (const [id, view] of this.sprites) consider('responder', id, view);
+    return best;
   }
+}
+
+function textureFor(object: ObjectSnapshot): string {
+  if (object.objectType === 'locker') return 'object-locker';
+  if (object.objectType === 'door')
+    return object.state === 'open' ? 'object-door-open' : 'object-door';
+  return object.state === 'operated' ? 'object-panel-on' : 'object-panel';
 }
