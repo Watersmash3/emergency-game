@@ -2,7 +2,7 @@
 
 A single-player, browser-based tactical emergency response game. The player commands a team or an individual responder. The simulation runs locally in a web worker and does not depend on the renderer.
 
-This repository is a playable training yard: four responders, an engine, team movement, individual overrides, equipment retrieval, a locked door that can be forced, and a fire the crew can suppress.
+This repository is a playable training yard: four responders, an engine with a pump and hoses, team movement, individual overrides, equipment retrieval, a locked door that can be forced, and a fire the crew can suppress with an extinguisher or an attack line.
 
 ## Prerequisites
 
@@ -34,20 +34,22 @@ pnpm build
 
 | Input             | Action                                                |
 | ----------------- | ----------------------------------------------------- |
-| Left-click        | Select a responder, object, vehicle, or fire          |
-| Team header       | Select the whole team                                 |
-| Engine row        | Select Engine 1                                       |
-| Incident row      | Select the training fire and show its status          |
-| Right-click       | Move, board or exit, interact, or suppress            |
-| Object action     | Retrieve, force a door, or operate a panel            |
-| Board / Respond   | Load the crew, drive to staging, and disembark        |
-| Suppress          | One firefighter, or the whole crew, attacks the fire  |
-| Save / Load       | Store the incident locally and resume it after reload |
+| Left-click        | Select a responder, object, vehicle, hydrant, or fire |
+| Shift-click       | Add or remove a responder from the selection          |
+| Drag              | Select the responders inside the box                  |
+| Roster or team    | Select that unit and focus the camera                |
+| Right-click       | Move, reposition a nozzle, board, interact, or connect a hydrant |
+| Shift-right-click | Queue a move, retrieval, door, panel, board, or exit  |
+| Command bar       | Actions for the current selection                     |
+| F / Home / G      | Focus the selection, fit the yard, or follow          |
+| Backspace         | Cancel the selected order                             |
+| D                 | Debug coordinates, nodes, ids, and blocked tiles      |
+| Saves             | Open save and load without leaving it on the map      |
 | Space or Pause    | Pause or resume the simulation                        |
 | Mouse wheel       | Zoom                                                  |
 | Middle mouse drag | Pan                                                   |
 
-Orders can be issued while paused. Units do not move, and boarding, driving, fire growth, and suppression do not progress, until the simulation resumes. A responder carries at most two items. Forcing the training door fetches a Halligan tool from the staging locker when the responder does not already have one. Engine 1 carries its own copies of that equipment and can be used only while it is parked. Suppressing the training fire uses an extinguisher from the locker or from the parked engine. The carried count on an extinguisher is the remaining suppression agent. Save stores the whole simulation, including a task that is already in progress. Load replaces the running incident only after the file has been validated. Autosave keeps the latest automatic copy and one previous recovery copy, and it does not overwrite a named save.
+Orders can be issued while paused. Units do not move, and boarding, driving, pump flow, fire growth, and suppression do not progress, until the simulation resumes. A responder carries at most two items. Forcing the training door fetches a Halligan tool from the staging locker when the responder does not already have one. Engine 1 carries its own copies of that equipment, a supply hose, and an attack hose, and can be used only while it is parked. Suppressing the training fire uses an extinguisher from the locker or from the parked engine, or water from a charged attack line. A dry nozzle does not reduce the fire. The carried count on an extinguisher is the remaining suppression agent. Save stores the whole simulation, including pump state, hose routes, and a task that is already in progress. A version 1 save loads with a stopped pump added. Load replaces the running incident only after the file has been validated. Autosave keeps the latest automatic copy and one previous recovery copy, and it does not overwrite a named save.
 
 ## Compatibility
 

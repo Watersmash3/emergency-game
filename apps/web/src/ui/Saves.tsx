@@ -1,4 +1,4 @@
-import { saveDocumentSchema, saveSchemaMessage } from '@emergency/protocol';
+import { prepareSaveDocument } from '@emergency/protocol';
 import { useEffect, useState } from 'react';
 
 import {
@@ -47,14 +47,14 @@ export function Saves() {
   }
 
   async function onLoad(record: SaveRecord): Promise<void> {
-    const parsed = saveDocumentSchema.safeParse(record.document);
-    if (!parsed.success) {
-      useGameStore.getState().setSaveNotice(saveSchemaMessage(record.document));
+    const parsed = prepareSaveDocument(record.document);
+    if (!parsed.ok) {
+      useGameStore.getState().setSaveNotice(parsed.message);
       return;
     }
     setBusy(true);
     try {
-      const result = await restoreDocument(parsed.data);
+      const result = await restoreDocument(parsed.document);
       useGameStore.getState().setSaveNotice(result.ok ? `Loaded ${record.name}.` : result.message);
     } catch (error) {
       useGameStore.getState().setSaveNotice(failureNotice(error));

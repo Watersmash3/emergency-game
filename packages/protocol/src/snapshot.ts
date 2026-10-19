@@ -15,6 +15,23 @@ export const taskStateSchema = z.enum([
 
 export type TaskState = z.infer<typeof taskStateSchema>;
 
+function waterSnapshot<const K extends string>(kind: K) {
+  return z.object({
+    ...taskCommonSchema,
+    kind: z.literal(kind),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+    equipmentId: z.string().min(1).optional(),
+    vehicleId: z.string().min(1).optional(),
+    hydrantId: z.string().min(1).optional(),
+    hoseId: z.string().min(1).optional(),
+    destination: tileSchema.optional(),
+    role: z.enum(['supply', 'pump', 'attack']).optional(),
+  });
+}
+
 const taskCommonSchema = {
   id: z.string().min(1),
   state: taskStateSchema,
@@ -108,6 +125,17 @@ export const taskSnapshotSchema = z.discriminatedUnion('kind', [
     progressTicks: z.number().int().nonnegative(),
     durationTicks: z.number().int().nonnegative(),
   }),
+  waterSnapshot('connect-supply'),
+  waterSnapshot('disconnect-supply'),
+  waterSnapshot('open-supply'),
+  waterSnapshot('close-supply'),
+  waterSnapshot('start-pump'),
+  waterSnapshot('stop-pump'),
+  waterSnapshot('deploy-attack'),
+  waterSnapshot('operate-nozzle'),
+  waterSnapshot('reposition-nozzle'),
+  waterSnapshot('disconnect-attack'),
+  waterSnapshot('establish-fire-attack'),
   z.object({
     ...taskCommonSchema,
     kind: z.literal('interact'),
@@ -183,6 +211,17 @@ export const vehicleSnapshotSchema = z.object({
   destinationNodeId: z.string().min(1).nullable(),
   speed: z.number().positive(),
   contents: z.array(storedEquipmentSchema),
+  pump: z
+    .object({
+      state: z.enum(['off', 'starting', 'operating', 'unavailable']),
+      pressure: z.number().nonnegative(),
+      maxDelivery: z.number().positive(),
+      tank: z.number().nonnegative(),
+      tankCapacity: z.number().positive(),
+      intakeId: z.string().min(1).nullable(),
+      discharges: z.array(z.string().min(1)),
+    })
+    .optional(),
 });
 
 export type VehicleSnapshot = z.infer<typeof vehicleSnapshotSchema>;
@@ -221,6 +260,51 @@ export const roadSnapshotSchema = z.object({
   kind: z.enum(['intersection', 'staging', 'spawn']),
 });
 
+export const hydrantSnapshotSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  position: tileSchema,
+  available: z.boolean(),
+  flowCapacity: z.number().positive(),
+  connectionId: z.string().min(1).nullable(),
+});
+
+export type HydrantSnapshot = z.infer<typeof hydrantSnapshotSchema>;
+
+export const hoseSnapshotSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(['supply', 'attack']),
+  state: z.enum(['connected', 'open']),
+  sourceId: z.string().min(1).nullable(),
+  targetId: z.string().min(1).nullable(),
+  operatorId: z.string().min(1).nullable(),
+  length: z.number().nonnegative(),
+  maxLength: z.number().positive(),
+  flow: z.number().nonnegative(),
+  route: z.array(vec2Schema),
+});
+
+export type HoseSnapshot = z.infer<typeof hoseSnapshotSchema>;
+
+export const orderSnapshotSchema = z.object({
+  id: z.string().min(1),
+  assigneeId: z.string().min(1),
+  label: z.string().min(1),
+  destination: tileSchema.nullable(),
+});
+
+export type OrderSnapshot = z.infer<typeof orderSnapshotSchema>;
+
+export const noticeSnapshotSchema = z.object({
+  id: z.string().min(1),
+  tick: z.number().int().nonnegative(),
+  message: z.string().min(1),
+  tone: z.enum(['info', 'warning', 'good']),
+});
+
+export type NoticeSnapshot = z.infer<typeof noticeSnapshotSchema>;
+
 export const simulationSnapshotSchema = z.object({
   scenarioId: z.string().min(1),
   seed: z.number().int(),
@@ -240,7 +324,11 @@ export const simulationSnapshotSchema = z.object({
   inventoryCapacity: z.number().int().positive(),
   tasks: z.array(taskSnapshotSchema),
   fires: z.array(fireSnapshotSchema),
+  hydrants: z.array(hydrantSnapshotSchema),
+  hoses: z.array(hoseSnapshotSchema),
   incidents: z.array(incidentSnapshotSchema),
+  orders: z.array(orderSnapshotSchema),
+  notices: z.array(noticeSnapshotSchema),
 });
 
 export type SimulationSnapshot = z.infer<typeof simulationSnapshotSchema>;

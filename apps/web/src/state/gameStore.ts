@@ -1,13 +1,11 @@
 import type { Command, SimulationSnapshot, WorkerOutbound } from '@emergency/protocol';
 import { create } from 'zustand';
 
-export type Selection =
-  | { kind: 'responder'; id: string }
-  | { kind: 'team'; id: string }
-  | { kind: 'object'; id: string }
-  | { kind: 'vehicle'; id: string }
-  | { kind: 'fire'; id: string }
-  | null;
+import { mergeIds, type Selection } from '../game/input/selection.ts';
+
+export type { Selection };
+
+export type CameraMode = 'fit' | 'focus';
 
 export interface CommandResultView {
   commandId: string;
@@ -24,15 +22,35 @@ interface GameState {
   error: string | null;
   saveNotice: string | null;
   savesRevision: number;
+  follow: boolean;
+  debug: boolean;
+  savesOpen: boolean;
+  settingsOpen: boolean;
+  rosterOpen: boolean;
+  detailOpen: boolean;
+  commandMode: 'move' | null;
+  cameraMode: CameraMode;
+  cameraToken: number;
+  layoutToken: number;
   applyOutbound: (message: WorkerOutbound) => void;
   setSaveNotice: (notice: string | null) => void;
   bumpSaves: () => void;
-  selectResponder: (id: string) => void;
+  selectResponders: (ids: string[], additive?: boolean, toggle?: boolean) => void;
   selectTeam: (id: string) => void;
   selectObject: (id: string) => void;
   selectVehicle: (id: string) => void;
   selectFire: (id: string) => void;
+  selectHydrant: (id: string) => void;
+  selectHose: (id: string) => void;
   clearSelection: () => void;
+  requestCamera: (mode: CameraMode) => void;
+  toggleFollow: () => void;
+  toggleDebug: () => void;
+  setSavesOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean) => void;
+  toggleRoster: () => void;
+  toggleDetail: () => void;
+  setCommandMode: (mode: 'move' | null) => void;
   reset: () => void;
 }
 
@@ -40,11 +58,21 @@ const initial = {
   snapshot: null,
   previousSnapshot: null,
   snapshotAt: 0,
-  selection: null,
+  selection: null as Selection,
   lastResult: null,
   error: null,
   saveNotice: null,
   savesRevision: 0,
+  follow: false,
+  debug: false,
+  savesOpen: false,
+  settingsOpen: false,
+  rosterOpen: true,
+  detailOpen: true,
+  commandMode: null as 'move' | null,
+  cameraMode: 'fit' as CameraMode,
+  cameraToken: 0,
+  layoutToken: 0,
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -71,12 +99,37 @@ export const useGameStore = create<GameState>((set) => ({
     }
     if (message.type === 'error') set({ error: message.message });
   },
-  selectResponder: (id) => set({ selection: { kind: 'responder', id } }),
-  selectTeam: (id) => set({ selection: { kind: 'team', id } }),
-  selectObject: (id) => set({ selection: { kind: 'object', id } }),
-  selectVehicle: (id) => set({ selection: { kind: 'vehicle', id } }),
-  selectFire: (id) => set({ selection: { kind: 'fire', id } }),
-  clearSelection: () => set({ selection: null }),
+  selectResponders: (ids, additive = false, toggle = false) =>
+    set((state) => {
+      const current = state.selection?.kind === 'responders' ? state.selection.ids : [];
+      const next = mergeIds(current, ids, additive, toggle);
+      return {
+        selection: next.length > 0 ? { kind: 'responders', ids: next } : null,
+        commandMode: null,
+      };
+    }),
+  selectTeam: (id) => set({ selection: { kind: 'team', id }, commandMode: null }),
+  selectObject: (id) => set({ selection: { kind: 'object', id }, commandMode: null }),
+  selectVehicle: (id) => set({ selection: { kind: 'vehicle', id }, commandMode: null }),
+  selectFire: (id) => set({ selection: { kind: 'fire', id }, commandMode: null }),
+  selectHydrant: (id) => set({ selection: { kind: 'hydrant', id }, commandMode: null }),
+  selectHose: (id) => set({ selection: { kind: 'hose', id }, commandMode: null }),
+  clearSelection: () => set({ selection: null, commandMode: null }),
+  requestCamera: (mode) =>
+    set((state) => ({
+      cameraMode: mode,
+      cameraToken: state.cameraToken + 1,
+      follow: mode === 'focus' ? state.follow : false,
+    })),
+  toggleFollow: () => set((state) => ({ follow: !state.follow })),
+  toggleDebug: () => set((state) => ({ debug: !state.debug })),
+  setSavesOpen: (savesOpen) => set({ savesOpen, settingsOpen: false }),
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  toggleRoster: () =>
+    set((state) => ({ rosterOpen: !state.rosterOpen, layoutToken: state.layoutToken + 1 })),
+  toggleDetail: () =>
+    set((state) => ({ detailOpen: !state.detailOpen, layoutToken: state.layoutToken + 1 })),
+  setCommandMode: (commandMode) => set({ commandMode }),
   setSaveNotice: (saveNotice) => set({ saveNotice }),
   bumpSaves: () => set((state) => ({ savesRevision: state.savesRevision + 1 })),
   reset: () => set(initial),

@@ -18,17 +18,24 @@
 - A training-yard fire incident with tick-driven growth, fuel, and suppression
 - Individual `suppress-fire` and team `suppress-incident` orders, including reassignment after an override
 - Versioned local saves, load, delete, and a rotating autosave in IndexedDB
+- Engine pump, onboard tank, hydrant supply, and deployable attack hose
+- Team `establish-fire-attack`, with water suppression that requires real flow
+- Save schema version 2, with a migration that adds a stopped pump to version 1 saves
+- Incident-command layout, zoom-to-fit camera, and placeholder isometric sprites
+- Drag-box group selection and `move-group` for a temporary selection
+- Shift-queued individual orders for movement and a limited set of interactions
+- Simulation notices for arrivals, pump state, failures, and extinguished fires
 
 ## Next milestone
 
-Group selection and queued orders, so one responder can be given a second order without losing the first.
+A production art pass and simulation speed controls.
 
 ## Deliberately deferred
 
-- Drag-select, shift-queue, and number-key groups
-- Save migrations beyond schema version 1
+- Number-key groups
+- Save migrations beyond schema version 2
 - Tiled map import
-- Vehicle steering, traffic, pumps, hoses, and ladders
+- Vehicle steering, traffic, and ladders
 - Police, EMS, extrication, hazmat, and civilians
 - Multi-floor interiors
 - Speed controls other than pause

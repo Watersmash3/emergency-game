@@ -1,5 +1,6 @@
 import {
   SAVE_SCHEMA_VERSION,
+  prepareSaveDocument,
   saveDocumentSchema,
   saveSchemaMessage,
   type SaveDocument,
@@ -13,7 +14,8 @@ import { createRng } from '../core/rng.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { inBounds, tileKey, tileOf } from '../navigation/grid.ts';
 import { buildAdjacency } from '../navigation/road.ts';
-import type { Task } from '../tasks/types.ts';
+import type { Task, WaterTask } from '../tasks/types.ts';
+import { isWaterTask } from '../tasks/types.ts';
 
 export interface SaveFailure {
   ok: false;
@@ -55,6 +57,7 @@ export function exportWorld(world: World): SaveDocument {
       capabilities: [...definition.capabilities],
       agent: definition.agent,
       suppression: definition.suppression,
+      maxLength: definition.maxLength,
     })),
     equipment: [...world.equipment.values()].map((item) => ({
       id: item.id,
@@ -93,14 +96,22 @@ export function exportWorld(world: World): SaveDocument {
       const [x, y] = key.split(',');
       return { x: Number(x), y: Number(y), taskId };
     }),
+    orders: world.orders.map((order) => ({ id: order.id, command: order.command })),
+    notices: world.notices.map((notice) => ({
+      id: notice.id,
+      tick: notice.tick,
+      key: notice.key,
+      message: notice.message,
+      tone: notice.tone,
+    })),
   });
 }
 
 /** Parse a save and rebuild indexes. Task commands are not run again. */
 export function readSave(input: unknown): SaveWorld | SaveFailure {
-  const parsed = saveDocumentSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, message: saveSchemaMessage(input) };
-  const document = structuredClone(parsed.data);
+  const parsed = prepareSaveDocument(input);
+  if (!parsed.ok) return { ok: false, message: parsed.message || saveSchemaMessage(input) };
+  const document = structuredClone(parsed.document);
   const duplicate = duplicatedId(document);
   if (duplicate) return { ok: false, message: duplicate };
   const world = worldFromDocument(document);
@@ -151,6 +162,7 @@ function worldFromDocument(document: SaveDocument): World {
           capabilities: [...definition.capabilities],
           agent: definition.agent,
           suppression: definition.suppression,
+          maxLength: definition.maxLength ?? null,
         },
       ]),
     ),
@@ -172,6 +184,10 @@ function worldFromDocument(document: SaveDocument): World {
     paused: document.paused,
     accumulatorMs: 0,
     nextId: document.nextId,
+    orders: document.orders.map((order) => ({ id: order.id, command: order.command })),
+    notices: document.notices.map((notice) => ({ ...notice })),
+    statusStamp: new Map(),
+    noticeLatch: new Set(),
   };
 }
 
@@ -184,6 +200,8 @@ function duplicatedId(document: SaveDocument): string | null {
     ['objective', document.objectives.map((objective) => objective.id)],
     ['road', document.roads.map((road) => road.id)],
     ['catalog entry', document.catalog.map((definition) => definition.id)],
+    ['order', document.orders.map((order) => order.id)],
+    ['notice', document.notices.map((notice) => notice.id)],
   ];
   for (const [label, ids] of lists) {
     const seen = new Set<string>();
@@ -212,6 +230,12 @@ function inconsistent(world: World): string | null {
   }
   if (world.team.apparatusId && !world.entities.get(world.team.apparatusId)?.vehicle) {
     return fail(`apparatus ${world.team.apparatusId} is missing`);
+  }
+
+  for (const order of world.orders) {
+    if (!world.entities.get(order.command.responderId)?.responder) {
+      return fail(`order ${order.id} has no responder`);
+    }
   }
 
   for (const edge of world.roadEdges) {
@@ -326,7 +350,7 @@ function inconsistent(world: World): string | null {
       if (!world.entities.get(task.assigneeId)?.vehicle) {
         return fail(`task ${task.id} is not assigned to a vehicle`);
       }
-    } else if (task.kind === 'suppress-incident') {
+    } else if (task.kind === 'suppress-incident' || task.kind === 'establish-fire-attack') {
       if (!world.incidents.has(task.assigneeId))
         return fail(`task ${task.id} is not assigned to an incident`);
     } else if (!world.entities.get(task.assigneeId)?.responder) {
@@ -359,6 +383,49 @@ function inconsistent(world: World): string | null {
   }
   for (const [tile, taskId] of world.reservedExits) {
     if (!world.tasks.has(taskId)) return fail(`reserved exit ${tile} is dangling`);
+  }
+  const hoseEquipment = new Set<string>();
+  for (const entity of world.entities.values()) {
+    const pump = entity.vehicle?.pump;
+    if (pump) {
+      if (pump.tank > pump.tankCapacity) return fail(`pump on ${entity.id} is overfilled`);
+      if (pump.intakeId && world.entities.get(pump.intakeId)?.hose?.targetId !== entity.id) {
+        return fail(`pump on ${entity.id} intake is not connected`);
+      }
+      for (const discharge of pump.discharges) {
+        const hose = world.entities.get(discharge)?.hose;
+        if (!hose || hose.kind !== 'attack' || hose.sourceId !== entity.id) {
+          return fail(`pump on ${entity.id} discharge ${discharge} is not an attack line`);
+        }
+      }
+    }
+    if (entity.hydrant) {
+      if (!entity.position) return fail(`hydrant ${entity.id} has no position`);
+      if (
+        entity.hydrant.connectionId &&
+        world.entities.get(entity.hydrant.connectionId)?.hose?.sourceId !== entity.id
+      ) {
+        return fail(`hydrant ${entity.id} connection does not start there`);
+      }
+    }
+    if (!entity.hose) continue;
+    const hose = entity.hose;
+    if (hoseEquipment.has(hose.equipmentId)) return fail(`hose ${hose.equipmentId} is duplicated`);
+    hoseEquipment.add(hose.equipmentId);
+    if (!world.equipment.has(hose.equipmentId)) return fail(`hose ${entity.id} has no equipment`);
+    if (entity.id !== `hose-${hose.equipmentId}`) return fail(`hose ${entity.id} has an unstable id`);
+    if (hose.operatorId && !world.entities.get(hose.operatorId)?.responder) {
+      return fail(`hose ${entity.id} operator is missing`);
+    }
+    if (hose.kind === 'supply' && hose.state === 'open' && (!hose.sourceId || !hose.targetId)) {
+      return fail(`hose ${entity.id} is open without both ends`);
+    }
+    if (hose.sourceId && !world.entities.has(hose.sourceId)) {
+      return fail(`hose ${entity.id} source is missing`);
+    }
+    if (hose.targetId && !world.entities.has(hose.targetId)) {
+      return fail(`hose ${entity.id} target is missing`);
+    }
   }
   return null;
 }
@@ -426,6 +493,18 @@ function exportEntity(entity: Entity): SaveEntity {
             status: entity.vehicle.status,
             nodeId: entity.vehicle.nodeId,
             destinationNodeId: entity.vehicle.destinationNodeId,
+            pump: entity.vehicle.pump
+              ? {
+                  state: entity.vehicle.pump.state,
+                  pressure: entity.vehicle.pump.pressure,
+                  maxDelivery: entity.vehicle.pump.maxDelivery,
+                  tankCapacity: entity.vehicle.pump.tankCapacity,
+                  tank: entity.vehicle.pump.tank,
+                  intakeId: entity.vehicle.pump.intakeId,
+                  discharges: [...entity.vehicle.pump.discharges],
+                  delivered: entity.vehicle.pump.delivered,
+                }
+              : null,
             seatReservations: entity.vehicle.seatReservations.map((seat) => ({
               responderId: seat.responderId,
               taskId: seat.taskId,
@@ -443,6 +522,37 @@ function exportEntity(entity: Entity): SaveEntity {
             growth: entity.fire.growth,
             fuelUse: entity.fire.fuelUse,
             range: entity.fire.range,
+          },
+        }
+      : {}),
+    ...(entity.hydrant
+      ? {
+          hydrant: {
+            name: entity.hydrant.name,
+            available: entity.hydrant.available,
+            flowCapacity: entity.hydrant.flowCapacity,
+            connectionId: entity.hydrant.connectionId,
+            interactionTiles: entity.hydrant.interactionTiles.map((tile) => ({
+              x: tile.x,
+              y: tile.y,
+            })),
+          },
+        }
+      : {}),
+    ...(entity.hose
+      ? {
+          hose: {
+            kind: entity.hose.kind,
+            name: entity.hose.name,
+            definitionId: entity.hose.definitionId,
+            equipmentId: entity.hose.equipmentId,
+            maxLength: entity.hose.maxLength,
+            route: entity.hose.route.map((point) => ({ x: point.x, y: point.y })),
+            state: entity.hose.state,
+            sourceId: entity.hose.sourceId,
+            targetId: entity.hose.targetId,
+            operatorId: entity.hose.operatorId,
+            flow: entity.hose.flow,
           },
         }
       : {}),
@@ -500,6 +610,18 @@ function importEntity(record: SaveEntity): Entity {
       status: record.vehicle.status,
       nodeId: record.vehicle.nodeId,
       destinationNodeId: record.vehicle.destinationNodeId,
+      pump: record.vehicle.pump
+        ? {
+            state: record.vehicle.pump.state,
+            pressure: record.vehicle.pump.pressure,
+            maxDelivery: record.vehicle.pump.maxDelivery,
+            tankCapacity: record.vehicle.pump.tankCapacity,
+            tank: record.vehicle.pump.tank,
+            intakeId: record.vehicle.pump.intakeId,
+            discharges: [...record.vehicle.pump.discharges],
+            delivered: record.vehicle.pump.delivered,
+          }
+        : null,
       seatReservations: record.vehicle.seatReservations.map((seat) => ({
         responderId: seat.responderId,
         taskId: seat.taskId,
@@ -507,6 +629,30 @@ function importEntity(record: SaveEntity): Entity {
     };
   }
   if (record.fire) entity.fire = { ...record.fire };
+  if (record.hydrant) {
+    entity.hydrant = {
+      name: record.hydrant.name,
+      available: record.hydrant.available,
+      flowCapacity: record.hydrant.flowCapacity,
+      connectionId: record.hydrant.connectionId,
+      interactionTiles: record.hydrant.interactionTiles.map((tile) => ({ x: tile.x, y: tile.y })),
+    };
+  }
+  if (record.hose) {
+    entity.hose = {
+      kind: record.hose.kind,
+      name: record.hose.name,
+      definitionId: record.hose.definitionId,
+      equipmentId: record.hose.equipmentId,
+      maxLength: record.hose.maxLength,
+      route: record.hose.route.map((point) => ({ x: point.x, y: point.y })),
+      state: record.hose.state,
+      sourceId: record.hose.sourceId,
+      targetId: record.hose.targetId,
+      operatorId: record.hose.operatorId,
+      flow: record.hose.flow,
+    };
+  }
   return entity;
 }
 
@@ -583,6 +729,13 @@ function exportTask(task: Task): SaveTask {
       ...(task.equipmentId ? { equipmentId: task.equipmentId } : {}),
     };
   }
+  if (isWaterTask(task)) {
+    return {
+      ...activity,
+      kind: task.kind,
+      ...waterFields(task),
+    };
+  }
   return { ...activity, kind: task.kind };
 }
 
@@ -648,7 +801,25 @@ function importTask(task: SaveTask): Task {
       ...(task.equipmentId ? { equipmentId: task.equipmentId } : {}),
     };
   }
+  if (isWaterTask(task)) {
+    return {
+      ...activity,
+      kind: task.kind,
+      ...waterFields(task),
+    };
+  }
   return { ...activity, kind: task.kind };
+}
+
+function waterFields(task: WaterTask): Pick<WaterTask, 'equipmentId' | 'vehicleId' | 'hydrantId' | 'hoseEntityId' | 'destination' | 'role'> {
+  return {
+    ...(task.equipmentId ? { equipmentId: task.equipmentId } : {}),
+    ...(task.vehicleId ? { vehicleId: task.vehicleId } : {}),
+    ...(task.hydrantId ? { hydrantId: task.hydrantId } : {}),
+    ...(task.hoseEntityId ? { hoseEntityId: task.hoseEntityId } : {}),
+    ...(task.destination ? { destination: { x: task.destination.x, y: task.destination.y } } : {}),
+    ...(task.role ? { role: task.role } : {}),
+  };
 }
 
 function copyCommon(

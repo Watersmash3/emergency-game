@@ -37,6 +37,16 @@ export const CommandRejection = {
   NoSuppressant: 'No suppression equipment',
   AgentSpent: 'Suppression agent exhausted',
   IncidentResolved: 'Incident is already resolved',
+  NoPump: 'Engine has no pump',
+  PumpRunning: 'Pump is already running',
+  PumpOff: 'Pump is off',
+  NoHydrant: 'No hydrant available',
+  HoseTooShort: 'Hose is too short',
+  HoseInUse: 'Hose is in use',
+  NotConnected: 'Hose is not connected',
+  SupplyClosed: 'Supply is closed',
+  AlreadyConnected: 'Already connected',
+  EngineNotParked: 'Engine is not parked',
 } as const;
 
 export type CommandResult = { ok: true } | { ok: false; reason: string };

@@ -79,6 +79,29 @@ export interface SuppressIncidentTask extends ActivityTask {
   kind: 'suppress-incident';
 }
 
+export type WaterKind =
+  | 'connect-supply'
+  | 'disconnect-supply'
+  | 'open-supply'
+  | 'close-supply'
+  | 'start-pump'
+  | 'stop-pump'
+  | 'deploy-attack'
+  | 'operate-nozzle'
+  | 'reposition-nozzle'
+  | 'disconnect-attack'
+  | 'establish-fire-attack';
+
+export interface WaterTask extends ActivityTask {
+  kind: WaterKind;
+  equipmentId?: string;
+  vehicleId?: string;
+  hydrantId?: string;
+  hoseEntityId?: string;
+  destination?: Tile;
+  role?: 'supply' | 'pump' | 'attack';
+}
+
 export type ParentTask =
   | RetrieveEquipmentTask
   | ForceDoorTask
@@ -88,9 +111,28 @@ export type ParentTask =
   | DriveVehicleTask
   | RespondTask
   | SuppressFireTask
-  | SuppressIncidentTask;
+  | SuppressIncidentTask
+  | WaterTask;
 
 export type Task = MoveTask | ParentTask | InteractTask;
+
+const WATER_KINDS: ReadonlySet<string> = new Set<WaterKind>([
+  'connect-supply',
+  'disconnect-supply',
+  'open-supply',
+  'close-supply',
+  'start-pump',
+  'stop-pump',
+  'deploy-attack',
+  'operate-nozzle',
+  'reposition-nozzle',
+  'disconnect-attack',
+  'establish-fire-attack',
+]);
+
+export function isWaterTask(task: { kind: string }): task is WaterTask {
+  return WATER_KINDS.has(task.kind);
+}
 
 export function isParentTask(task: Task): task is ParentTask {
   return (
@@ -102,6 +144,17 @@ export function isParentTask(task: Task): task is ParentTask {
     task.kind === 'drive-vehicle' ||
     task.kind === 'respond' ||
     task.kind === 'suppress-fire' ||
-    task.kind === 'suppress-incident'
+    task.kind === 'suppress-incident' ||
+    task.kind === 'connect-supply' ||
+    task.kind === 'disconnect-supply' ||
+    task.kind === 'open-supply' ||
+    task.kind === 'close-supply' ||
+    task.kind === 'start-pump' ||
+    task.kind === 'stop-pump' ||
+    task.kind === 'deploy-attack' ||
+    task.kind === 'operate-nozzle' ||
+    task.kind === 'reposition-nozzle' ||
+    task.kind === 'disconnect-attack' ||
+    task.kind === 'establish-fire-attack'
   );
 }

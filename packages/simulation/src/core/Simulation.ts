@@ -14,16 +14,21 @@ import {
 import type { EquipmentInstance } from '../components/equipment.ts';
 import type { IncidentRecord, ObjectiveRecord } from '../components/incident.ts';
 import type { Entity } from '../entities/Entity.ts';
-import { inBounds, isBlocked, tileCenter, tileKey, tileOf } from '../navigation/grid.ts';
+import { inBounds, isBlocked, isWalkable, tileCenter, tileKey, tileOf } from '../navigation/grid.ts';
 import { buildAdjacency } from '../navigation/road.ts';
 import { stepFire } from '../systems/fireSystem.ts';
+import { stepWater } from '../systems/waterSystem.ts';
 import { stepMovement } from '../systems/movementSystem.ts';
 import { stepVehicles, syncOccupants } from '../systems/vehicleSystem.ts';
 import { evaluateIncidents } from '../tasks/fireRules.ts';
 import { stepTasks } from '../tasks/interactions.ts';
 import { computeInteractionTiles } from '../tasks/lifecycle.ts';
-import { applyCommand, type CommandResult } from '../tasks/moveTasks.ts';
+import { scanStatus, seedStatus } from '../tasks/notices.ts';
+import { orderLabel } from '../tasks/orders.ts';
+import { routeLength } from '../tasks/waterRules.ts';
+import { applyCommand, promoteQueued, type CommandResult } from '../tasks/moveTasks.ts';
 import type { Task } from '../tasks/types.ts';
+import { isWaterTask } from '../tasks/types.ts';
 import { exportWorld, readSave } from '../persistence/save.ts';
 import { createRng } from './rng.ts';
 import { MAX_TICKS_PER_STEP, type World } from './world.ts';
@@ -46,10 +51,13 @@ export class Simulation {
   }
 
   static create(scenario: Scenario): Simulation {
-    return new Simulation(createWorld(scenario));
+    const world = createWorld(scenario);
+    seedStatus(world);
+    return new Simulation(world);
   }
 
   static fromWorld(world: World): Simulation {
+    seedStatus(world);
     return new Simulation(world);
   }
 
@@ -63,10 +71,13 @@ export class Simulation {
     this.world.tick += 1;
     stepMovement(this.world);
     stepVehicles(this.world);
+    stepWater(this.world);
     stepFire(this.world);
     stepTasks(this.world);
     evaluateIncidents(this.world);
     syncOccupants(this.world);
+    promoteQueued(this.world);
+    scanStatus(this.world);
   }
 
   /** Catch up by whole fixed steps. Partial time is kept until the next call. */
@@ -227,6 +238,43 @@ function createWorld(scenarioInput: Scenario): World {
         nodeId: node.id,
         destinationNodeId: null,
         seatReservations: [],
+        pump: definition.pump
+          ? {
+              state: 'off',
+              pressure: 0,
+              maxDelivery: definition.pump.maxDelivery,
+              tankCapacity: definition.pump.tankCapacity,
+              tank: definition.pump.tankCapacity,
+              intakeId: null,
+              discharges: [],
+              delivered: 0,
+            }
+          : null,
+      },
+    });
+  }
+
+  for (const hydrant of scenario.hydrants) {
+    if (entities.has(hydrant.id)) throw new Error(`Duplicate entity id ${hydrant.id}`);
+    if (!inBounds(scenario.width, scenario.height, hydrant.position) || isBlocked(blocked, hydrant.position)) {
+      throw new Error(`Hydrant ${hydrant.id} is not on an open tile`);
+    }
+    const center = tileCenter(hydrant.position);
+    const interactionTiles = [
+      { x: hydrant.position.x + 1, y: hydrant.position.y },
+      { x: hydrant.position.x - 1, y: hydrant.position.y },
+      { x: hydrant.position.x, y: hydrant.position.y + 1 },
+      { x: hydrant.position.x, y: hydrant.position.y - 1 },
+    ].filter((tile) => isWalkable(scenario.width, scenario.height, blocked, tile));
+    entities.set(hydrant.id, {
+      id: hydrant.id,
+      position: { x: center.x, y: center.y },
+      hydrant: {
+        name: hydrant.name,
+        available: true,
+        flowCapacity: hydrant.flowCapacity,
+        connectionId: null,
+        interactionTiles,
       },
     });
   }
@@ -240,6 +288,7 @@ function createWorld(scenarioInput: Scenario): World {
         capabilities: [...definition.capabilities],
         agent: definition.agent ?? null,
         suppression: definition.suppression ?? 0,
+        maxLength: definition.maxLength ?? null,
       },
     ]),
   );
@@ -350,6 +399,10 @@ function createWorld(scenarioInput: Scenario): World {
     paused: false,
     accumulatorMs: 0,
     nextId: 1,
+    orders: [],
+    notices: [],
+    statusStamp: new Map(),
+    noticeLatch: new Set(),
   };
 }
 
@@ -446,6 +499,42 @@ function snapshotOf(world: World): SimulationSnapshot {
           out: fire.intensity <= 0,
         };
       }),
+    hydrants: [...world.entities.values()]
+      .filter((entity) => entity.hydrant && entity.position)
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((entity) => {
+        const hydrant = entity.hydrant;
+        const position = entity.position;
+        if (!hydrant || !position) throw new Error(`Hydrant ${entity.id} is incomplete`);
+        return {
+          id: entity.id,
+          name: hydrant.name,
+          position: tileOf(position),
+          available: hydrant.available,
+          flowCapacity: hydrant.flowCapacity,
+          connectionId: hydrant.connectionId,
+        };
+      }),
+    hoses: [...world.entities.values()]
+      .filter((entity) => entity.hose)
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((entity) => {
+        const hose = entity.hose;
+        if (!hose) throw new Error(`Hose ${entity.id} is incomplete`);
+        return {
+          id: entity.id,
+          name: hose.name,
+          kind: hose.kind,
+          state: hose.state,
+          sourceId: hose.sourceId,
+          targetId: hose.targetId,
+          operatorId: hose.operatorId,
+          length: routeLength(hose.route),
+          maxLength: hose.maxLength,
+          flow: hose.flow,
+          route: hose.route.map((point) => ({ x: point.x, y: point.y })),
+        };
+      }),
     incidents: [...world.incidents.values()]
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
       .map((incident) => ({
@@ -462,6 +551,19 @@ function snapshotOf(world: World): SimulationSnapshot {
             state: objective.state,
           })),
       })),
+    orders: world.orders.map((order) => ({
+      id: order.id,
+      assigneeId: order.command.responderId,
+      label: orderLabel(order.command),
+      destination:
+        order.command.type === 'move-responder' ? { ...order.command.destination } : null,
+    })),
+    notices: world.notices.map((notice) => ({
+      id: notice.id,
+      tick: notice.tick,
+      message: notice.message,
+      tone: notice.tone,
+    })),
   };
 }
 
@@ -524,6 +626,19 @@ function snapshotVehicle(world: World, entity: Entity) {
     destinationNodeId: vehicle.destinationNodeId,
     speed: entity.movement?.speed ?? 0,
     contents: storedContents(world, entity.id),
+    ...(vehicle.pump
+      ? {
+          pump: {
+            state: vehicle.pump.state,
+            pressure: vehicle.pump.pressure,
+            maxDelivery: vehicle.pump.maxDelivery,
+            tank: vehicle.pump.tank,
+            tankCapacity: vehicle.pump.tankCapacity,
+            intakeId: vehicle.pump.intakeId,
+            discharges: [...vehicle.pump.discharges],
+          },
+        }
+      : {}),
   };
 }
 
@@ -601,6 +716,20 @@ function snapshotTask(world: World, task: Task): TaskSnapshot {
   }
   if (task.kind === 'suppress-fire' || task.kind === 'suppress-incident') {
     return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
+  }
+  if (isWaterTask(task)) {
+    return {
+      ...common,
+      kind: task.kind,
+      targetId: task.targetId,
+      ...progress,
+      ...(task.equipmentId ? { equipmentId: task.equipmentId } : {}),
+      ...(task.vehicleId ? { vehicleId: task.vehicleId } : {}),
+      ...(task.hydrantId ? { hydrantId: task.hydrantId } : {}),
+      ...(task.hoseEntityId ? { hoseId: task.hoseEntityId } : {}),
+      ...(task.destination ? { destination: { x: task.destination.x, y: task.destination.y } } : {}),
+      ...(task.role ? { role: task.role } : {}),
+    };
   }
   if (task.kind === 'drive-vehicle') {
     return {

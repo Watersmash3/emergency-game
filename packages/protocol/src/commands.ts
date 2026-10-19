@@ -2,6 +2,55 @@ import { z } from 'zod';
 
 import { tileSchema } from './scenario.ts';
 
+const moveResponderCommand = z.object({
+  type: z.literal('move-responder'),
+  responderId: z.string().min(1),
+  destination: tileSchema,
+});
+
+const retrieveEquipmentCommand = z.object({
+  type: z.literal('retrieve-equipment'),
+  responderId: z.string().min(1),
+  lockerId: z.string().min(1),
+  definitionId: z.string().min(1),
+});
+
+const forceDoorCommand = z.object({
+  type: z.literal('force-door'),
+  responderId: z.string().min(1),
+  doorId: z.string().min(1),
+});
+
+const operatePanelCommand = z.object({
+  type: z.literal('operate-panel'),
+  responderId: z.string().min(1),
+  panelId: z.string().min(1),
+});
+
+const boardVehicleCommand = z.object({
+  type: z.literal('board-vehicle'),
+  responderId: z.string().min(1),
+  vehicleId: z.string().min(1),
+});
+
+const exitVehicleCommand = z.object({
+  type: z.literal('exit-vehicle'),
+  responderId: z.string().min(1),
+  vehicleId: z.string().min(1),
+});
+
+/** Orders that wait until the responder is free and do not reserve equipment early. */
+export const queuedCommandSchema = z.discriminatedUnion('type', [
+  moveResponderCommand,
+  retrieveEquipmentCommand,
+  forceDoorCommand,
+  operatePanelCommand,
+  boardVehicleCommand,
+  exitVehicleCommand,
+]);
+
+export type QueuedCommand = z.infer<typeof queuedCommandSchema>;
+
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('pause'),
@@ -9,32 +58,15 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('resume'),
   }),
-  z.object({
-    type: z.literal('move-responder'),
-    responderId: z.string().min(1),
-    destination: tileSchema,
-  }),
+  moveResponderCommand,
   z.object({
     type: z.literal('move-team'),
     teamId: z.string().min(1),
     destination: tileSchema,
   }),
-  z.object({
-    type: z.literal('retrieve-equipment'),
-    responderId: z.string().min(1),
-    lockerId: z.string().min(1),
-    definitionId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('force-door'),
-    responderId: z.string().min(1),
-    doorId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('operate-panel'),
-    responderId: z.string().min(1),
-    panelId: z.string().min(1),
-  }),
+  retrieveEquipmentCommand,
+  forceDoorCommand,
+  operatePanelCommand,
   z.object({
     type: z.literal('retrieve-team'),
     teamId: z.string().min(1),
@@ -44,16 +76,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     type: z.literal('cancel-task'),
     taskId: z.string().min(1),
   }),
-  z.object({
-    type: z.literal('board-vehicle'),
-    responderId: z.string().min(1),
-    vehicleId: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('exit-vehicle'),
-    responderId: z.string().min(1),
-    vehicleId: z.string().min(1),
-  }),
+  boardVehicleCommand,
+  exitVehicleCommand,
   z.object({
     type: z.literal('board-team'),
     teamId: z.string().min(1),
@@ -84,6 +108,77 @@ export const commandSchema = z.discriminatedUnion('type', [
     type: z.literal('suppress-incident'),
     teamId: z.string().min(1),
     incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('connect-supply'),
+    responderId: z.string().min(1),
+    hydrantId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('disconnect-supply'),
+    responderId: z.string().min(1),
+    hoseId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('open-supply'),
+    responderId: z.string().min(1),
+    hoseId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('close-supply'),
+    responderId: z.string().min(1),
+    hoseId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('start-pump'),
+    responderId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('stop-pump'),
+    responderId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('deploy-attack'),
+    responderId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('operate-nozzle'),
+    responderId: z.string().min(1),
+    hoseId: z.string().min(1),
+    fireId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('reposition-nozzle'),
+    responderId: z.string().min(1),
+    hoseId: z.string().min(1),
+    destination: tileSchema,
+  }),
+  z.object({
+    type: z.literal('disconnect-attack'),
+    responderId: z.string().min(1),
+    hoseId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('establish-fire-attack'),
+    teamId: z.string().min(1),
+    incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('move-group'),
+    responderIds: z.array(z.string().min(1)).min(1),
+    destination: tileSchema,
+  }),
+  z.object({
+    type: z.literal('enqueue'),
+    order: queuedCommandSchema,
+  }),
+  z.object({
+    type: z.literal('cancel-order'),
+    orderId: z.string().min(1),
   }),
 ]);
 

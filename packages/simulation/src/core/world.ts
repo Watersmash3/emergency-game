@@ -5,6 +5,8 @@ import type { Rng } from '../core/rng.ts';
 import type { Entity } from '../entities/Entity.ts';
 import type { IncidentRecord, ObjectiveRecord } from '../components/incident.ts';
 import type { RoadNode } from '../navigation/road.ts';
+import type { Notice } from '../tasks/notices.ts';
+import type { QueuedOrder } from '../tasks/orders.ts';
 import type { Task } from '../tasks/types.ts';
 
 export interface World {
@@ -16,6 +18,10 @@ export interface World {
   blocked: Set<string>;
   entities: Map<string, Entity>;
   tasks: Map<string, Task>;
+  orders: QueuedOrder[];
+  notices: Notice[];
+  statusStamp: Map<string, string>;
+  noticeLatch: Set<string>;
   equipment: Map<string, EquipmentInstance>;
   catalog: Map<string, EquipmentDefinitionRecord>;
   inventoryCapacity: number;

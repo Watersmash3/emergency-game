@@ -1,3 +1,5 @@
+import type { Pump } from './pump.ts';
+
 export interface VehicleFootprint {
   width: number;
   height: number;
@@ -23,4 +25,5 @@ export interface Vehicle {
   nodeId: string;
   destinationNodeId: string | null;
   seatReservations: SeatReservation[];
+  pump: Pump | null;
 }

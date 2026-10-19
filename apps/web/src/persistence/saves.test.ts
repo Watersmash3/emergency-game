@@ -12,7 +12,7 @@ import {
 } from './saves.ts';
 
 function document(tick: number): SaveDocument {
-  return { schemaVersion: 1, scenarioId: 'training-yard', tick } as SaveDocument;
+  return { schemaVersion: 2, scenarioId: 'training-yard', tick } as unknown as SaveDocument;
 }
 
 describe('save storage', () => {

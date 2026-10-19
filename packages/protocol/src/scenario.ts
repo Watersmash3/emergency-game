@@ -59,6 +59,7 @@ export const equipmentDefinitionSchema = z.object({
   capabilities: z.array(z.string().min(1)),
   agent: z.number().nonnegative().optional(),
   suppression: z.number().nonnegative().optional(),
+  maxLength: z.number().positive().optional(),
 });
 
 export type EquipmentDefinition = z.infer<typeof equipmentDefinitionSchema>;
@@ -86,6 +87,12 @@ export const vehicleCatalogSchema = z.object({
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   }),
+  pump: z
+    .object({
+      tankCapacity: z.number().positive(),
+      maxDelivery: z.number().positive(),
+    })
+    .optional(),
 });
 
 export type VehicleCatalogDefinition = z.infer<typeof vehicleCatalogSchema>;
@@ -131,6 +138,15 @@ export const objectiveDefinitionSchema = z.object({
 
 export type ObjectiveDefinition = z.infer<typeof objectiveDefinitionSchema>;
 
+export const hydrantDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  position: tileSchema,
+  flowCapacity: z.number().positive(),
+});
+
+export type HydrantDefinition = z.infer<typeof hydrantDefinitionSchema>;
+
 export const incidentDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -157,6 +173,7 @@ export const scenarioSchema = z.object({
   vehicleCatalog: z.array(vehicleCatalogSchema).default([]),
   vehicles: z.array(vehiclePlacementSchema).default([]),
   fires: z.array(fireDefinitionSchema).default([]),
+  hydrants: z.array(hydrantDefinitionSchema).default([]),
   incidents: z.array(incidentDefinitionSchema).default([]),
 });
 

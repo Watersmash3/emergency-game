@@ -1,6 +1,6 @@
 # Tasks and command
 
-Task kinds are `move` (move-to), `interact`, `retrieve-equipment`, `force-door`, `operate-panel`, `board-vehicle`, `exit-vehicle`, `drive-vehicle`, `respond`, `suppress-fire`, and `suppress-incident`. Sources are `team` and `individual`. States are `pending`, `ready`, `running`, `suspended`, `completed`, `failed`, and `cancelled`. A new reachable task passes through `pending`, `ready`, and `running` before the command returns. Terminal states do not change.
+Task kinds are `move` (move-to), `interact`, `retrieve-equipment`, `force-door`, `operate-panel`, `board-vehicle`, `exit-vehicle`, `drive-vehicle`, `respond`, `suppress-fire`, `suppress-incident`, `connect-supply`, `disconnect-supply`, `open-supply`, `close-supply`, `start-pump`, `stop-pump`, `deploy-attack`, `operate-nozzle`, `reposition-nozzle`, `disconnect-attack`, and `establish-fire-attack`. Sources are `team` and `individual`. States are `pending`, `ready`, `running`, `suspended`, `completed`, `failed`, and `cancelled`. A new reachable task passes through `pending`, `ready`, and `running` before the command returns. Terminal states do not change.
 
 Compound tasks keep the script in the simulation. `force-door` checks the door, retrieves a Halligan tool when the responder does not have one, moves to an interaction tile, then spends interaction ticks. `retrieve-equipment` and `operate-panel` move to an interaction tile and then spend interaction ticks. `board-vehicle` reserves a seat, walks to the vehicle, and spends interaction ticks before the responder becomes an occupant. `exit-vehicle` requires a parked vehicle, reserves an adjacent tile, and spends interaction ticks before the responder is placed there. `respond` boards eligible crew, drives only after the designated driver is aboard, then disembarks when requested. Those ticks advance only inside `tick()`.
 
@@ -48,7 +48,29 @@ Each suppression tick consumes one agent and reduces intensity by the catalog ra
 - `respond-to` boards eligible members, drives, and optionally disembarks
 - `suppress-fire` for one responder and one fire
 - `suppress-incident` for the crew and one incident
+- `connect-supply`, `open-supply`, `close-supply`, and `disconnect-supply` for a hydrant line
+- `start-pump` and `stop-pump` for the engine pump
+- `deploy-attack`, `operate-nozzle`, `reposition-nozzle`, and `disconnect-attack` for an attack line
+- `establish-fire-attack` for the crew and one incident
+- `move-group` for an explicit set of responders, without creating a team
+- `enqueue` and `cancel-order` for a waiting individual order
+
+## Water
+
+A supply connection checks hose length along the walking route, not the straight-line distance. The hose remains in the world after the firefighter finishes connecting it. Opening the valve is a separate task. The pump starts only while the engine is parked, then keeps running without a firefighter at the panel. Driving makes the pump unavailable until it is started again.
+
+`operate-nozzle` may lay an unpressurized line and stand in range before water is available. A tick with no flow leaves intensity unchanged. A tick with flow reduces intensity by the attack hose's suppression rate times the flow taken from the tank. The nozzle operator cannot move farther than the deployed route allows.
+
+`establish-fire-attack` confirms the engine is parked, chooses a hydrant the supply hose can reach, and assigns supply, pump, and attack work to free members. A nozzle can be deployed before the pump is running. Water is applied only after the pump is operating and the tank or an open hydrant can supply it. An individual order cancels that firefighter's individual task, or suspends their team task. Reassigning a suspended role cancels that role's assignment and leaves the rest of the objective running. Cancelling the objective still cancels its children.
+
+## Group selection
+
+`move-group` takes responder ids and one destination. Each responder who can path receives an individual move on a distinct nearby tile. The command does not create a team. A responder who cannot path is reported on that move, and the others still go. A later individual order uses the existing override rules.
+
+## Queued orders
+
+`enqueue` stores a move, retrieval, door, panel, board, or exit command on that responder. It does not reserve equipment or interrupt the running task. When the responder has no running task, the next queued command is checked again and then started. An invalid command is dropped and recorded once. A new direct order for that responder clears the queue. `cancel-order` removes one waiting command. The queue is part of the save.
 
 ## What this model is not yet
 
-There is no goal, plan, or atomic-action library. The vehicle does not steer, accelerate, or change lanes. It travels node to node. The simulation does not replace a missing driver automatically. Fire does not spread to neighboring tiles, and suppression does not use pumps, hoses, or hydrants.
+There is no goal, plan, or atomic-action library. The vehicle does not steer, accelerate, or change lanes. It travels node to node. The simulation does not replace a missing driver automatically. Fire does not spread to neighboring tiles. Hoses follow tile routes and do not collide with the map.

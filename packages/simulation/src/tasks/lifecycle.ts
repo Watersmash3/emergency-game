@@ -8,9 +8,12 @@ import { isWalkable, tileOf } from '../navigation/grid.ts';
 import { CommandRejection } from './results.ts';
 import { transition } from './transitions.ts';
 import { invalidSuppressReason } from './fireRules.ts';
+import { noteTaskComplete, noteTaskFailure } from './notices.ts';
+import { cleanupWaterTask } from './waterRules.ts';
 import { parkVehicle, releaseTransport, vehicleInvalidReason } from './vehicleRules.ts';
 import {
   isParentTask,
+  isWaterTask,
   type InteractTask,
   type MoveTask,
   type ParentTask,
@@ -156,6 +159,7 @@ export function cancelTask(world: World, task: Task): void {
   if (!isOpen(root.state)) return;
   closeDescendants(world, root.id, true);
   noteCancellation(root);
+  cleanupWaterTask(world, root);
   if (root.kind === 'drive-vehicle' || root.kind === 'respond') parkVehicle(world, root.assigneeId);
   transition(root, 'cancelled');
   root.suspendedByTaskId = undefined;
@@ -165,12 +169,30 @@ export function cancelTask(world: World, task: Task): void {
   clearRoute(world.entities.get(root.assigneeId));
 }
 
+/** Cancel one assignment without cancelling its team objective. */
+export function abandonTask(world: World, task: Task): void {
+  if (!isOpen(task.state)) return;
+  closeDescendants(world, task.id, true);
+  noteCancellation(task);
+  cleanupWaterTask(world, task);
+  transition(task, 'cancelled');
+  task.suspendedByTaskId = undefined;
+  releaseReservations(world, task);
+  releaseTransport(world, task.id);
+  if (isParentTask(task)) task.childTaskId = undefined;
+  clearRoute(world.entities.get(task.assigneeId));
+  const parent = task.parentId ? world.tasks.get(task.parentId) : undefined;
+  if (parent && isParentTask(parent) && parent.childTaskId === task.id) parent.childTaskId = undefined;
+}
+
 export function failTask(world: World, task: Task, reason: string): void {
   if (!isOpen(task.state)) return;
   closeDescendants(world, task.id, true);
+  cleanupWaterTask(world, task);
   if (task.kind === 'drive-vehicle' || task.kind === 'respond') parkVehicle(world, task.assigneeId);
   transition(task, 'failed');
   task.failureReason = reason;
+  noteTaskFailure(world, task, reason);
   task.suspendedByTaskId = undefined;
   releaseReservations(world, task);
   releaseTransport(world, task.id);
@@ -183,6 +205,7 @@ export function completeTask(world: World, task: Task): void {
   closeDescendants(world, task.id, true);
   if (task.state !== 'running') return;
   transition(task, 'completed');
+  noteTaskComplete(world, task);
   releaseReservations(world, task);
   releaseTransport(world, task.id);
   if (isParentTask(task)) task.childTaskId = undefined;
@@ -310,6 +333,7 @@ export function tryResume(world: World, completedTaskId: string): void {
 }
 
 function invalidReason(world: World, task: Task): string | null {
+  if (task.kind === 'establish-fire-attack') return null;
   const entity = world.entities.get(task.assigneeId);
   if (!entity?.position) return CommandRejection.UnknownResponder;
   const from = tileOf(entity.position);
@@ -334,7 +358,19 @@ function invalidReason(world: World, task: Task): string | null {
       return invalidSuppressReason(world, task, from);
     case 'suppress-incident':
       return null;
+    case 'connect-supply':
+    case 'disconnect-supply':
+    case 'open-supply':
+    case 'close-supply':
+    case 'start-pump':
+    case 'stop-pump':
+    case 'deploy-attack':
+    case 'operate-nozzle':
+    case 'reposition-nozzle':
+    case 'disconnect-attack':
+      return null;
     default: {
+      if (isWaterTask(task)) return null;
       const unreachable: never = task;
       return unreachable;
     }
@@ -434,6 +470,7 @@ function closeDescendants(world: World, rootId: string, release: boolean): void 
     if (release || !root) releaseReservations(world, child);
     else transferReservations(world, child, root);
     releaseTransport(world, child.id);
+    cleanupWaterTask(world, child);
     if (child.kind === 'drive-vehicle') parkVehicle(world, child.assigneeId);
     noteCancellation(child);
     transition(child, 'cancelled');

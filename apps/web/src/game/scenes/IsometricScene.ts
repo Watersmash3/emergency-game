@@ -1,9 +1,12 @@
-import type { ObjectSnapshot, SimulationSnapshot } from '@emergency/protocol';
+import type { SimulationSnapshot } from '@emergency/protocol';
 import { FIXED_DT_MS } from '@emergency/protocol';
 import Phaser from 'phaser';
 
 import { useGameStore } from '../../state/gameStore.ts';
 import { bindSceneInput, type SceneHit } from '../input/sceneInput.ts';
+import { idsInside, type ScreenRect } from '../input/selection.ts';
+import { assets, objectAsset } from '../rendering/assets.ts';
+import { boundsCenter, fitZoom, mapScreenBounds, type Bounds } from '../rendering/camera.ts';
 import { isTickContinuation } from '../rendering/continuation.ts';
 import { worldToScreen } from '../rendering/iso.ts';
 import { createPlaceholderTextures } from '../rendering/textures.ts';
@@ -19,12 +22,24 @@ export class IsometricScene extends Phaser.Scene {
   private readonly objectSprites = new Map<string, SpriteView>();
   private readonly vehicleSprites = new Map<string, SpriteView>();
   private readonly fireSprites = new Map<string, SpriteView>();
+  private readonly hydrantSprites = new Map<string, SpriteView>();
   private readonly tileImages = new Map<string, Phaser.GameObjects.Image>();
   private readonly roadTiles = new Set<string>();
   private pathGraphics?: Phaser.GameObjects.Graphics;
+  private hoseGraphics?: Phaser.GameObjects.Graphics;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
+  private marqueeGraphics?: Phaser.GameObjects.Graphics;
+  private debugGraphics?: Phaser.GameObjects.Graphics;
+  private readonly debugTexts: Phaser.GameObjects.Text[] = [];
   private mapReady = false;
   private snap = false;
+  private autoFit = true;
+  private mapBounds?: Bounds;
+  private marquee: ScreenRect | null = null;
+  private hover: SceneHit | null = null;
+  private lastCamera = 0;
+  private lastLayout = 0;
+  private debugBuilt = false;
 
   constructor() {
     super('incident');
@@ -33,9 +48,27 @@ export class IsometricScene extends Phaser.Scene {
   create(): void {
     createPlaceholderTextures(this);
     this.pathGraphics = this.add.graphics().setDepth(10_000);
+    this.hoseGraphics = this.add.graphics().setDepth(9_000);
     this.selectionGraphics = this.add.graphics().setDepth(10_001);
+    this.debugGraphics = this.add.graphics().setDepth(8_000);
+    this.marqueeGraphics = this.add.graphics().setScrollFactor(0).setDepth(20_000);
     this.cameras.main.setRoundPixels(false);
-    bindSceneInput(this, (worldX, worldY) => this.hitTest(worldX, worldY));
+    bindSceneInput(this, {
+      hitTest: (worldX, worldY) => this.hitTest(worldX, worldY),
+      respondersInRect: (rect) => this.respondersInRect(rect),
+      setMarquee: (rect) => {
+        this.marquee = rect;
+      },
+      onHover: (hit) => {
+        this.hover = hit;
+      },
+      onUserCamera: () => {
+        this.autoFit = false;
+      },
+    });
+    this.scale.on(Phaser.Scale.Events.RESIZE, () => {
+      if (this.autoFit) this.fitYard();
+    });
     this.unsubscribe = useGameStore.subscribe(() => {
       if (!this.isLive()) return;
       this.syncFromStore();
@@ -49,9 +82,15 @@ export class IsometricScene extends Phaser.Scene {
 
   override update(): void {
     if (!this.isLive()) return;
+    this.consumeCameraRequests();
     this.interpolate();
+    this.drawHoses();
     this.drawPaths();
     this.drawSelection();
+    this.drawMarquee();
+    this.drawDebug();
+    if (useGameStore.getState().follow) this.centerOnSelection(false);
+    this.publishZoom();
   }
 
   private isLive(): boolean {
@@ -67,15 +106,18 @@ export class IsometricScene extends Phaser.Scene {
     if (!this.mapReady) {
       this.buildMap(snapshot);
       this.mapReady = true;
-      this.centerCamera(snapshot);
+      this.autoFit = true;
+      this.fitYard();
     } else if (this.snap) {
-      this.centerCamera(snapshot);
+      this.autoFit = true;
+      this.fitYard();
     }
     this.refreshBlocked(snapshot);
     this.ensureSprites(snapshot);
     this.ensureObjects(snapshot);
     this.ensureVehicles(snapshot);
     this.ensureFires(snapshot);
+    this.ensureHydrants(snapshot);
   }
 
   private buildMap(snapshot: SimulationSnapshot): void {
@@ -93,12 +135,13 @@ export class IsometricScene extends Phaser.Scene {
       for (let x = 0; x < snapshot.width; x += 1) {
         const screen = worldToScreen(x + 0.5, y + 0.5);
         const key = `${x},${y}`;
-        const image = this.add.image(
-          screen.x,
-          screen.y,
-          blocked.has(key) ? 'tile-blocked' : this.roadTiles.has(key) ? 'tile-road' : 'tile-ground',
-        );
-        image.setOrigin(0.5, 0.5);
+        const asset = blocked.has(key)
+          ? assets.structure
+          : this.roadTiles.has(key)
+            ? assets.road
+            : assets.ground(x + y);
+        const image = this.add.image(screen.x, screen.y, asset.key);
+        image.setOrigin(asset.originX, asset.originY);
         image.setDepth(screen.y);
         this.tileImages.set(key, image);
         minX = Math.min(minX, screen.x);
@@ -108,52 +151,110 @@ export class IsometricScene extends Phaser.Scene {
       }
     }
 
-    const pad = 160;
-    this.cameras.main.setBounds(
-      minX - pad,
-      minY - pad,
-      maxX - minX + pad * 2,
-      maxY - minY + pad * 2,
-    );
+    this.mapBounds = mapScreenBounds(snapshot.width, snapshot.height);
+    const pad = 180;
+    this.cameras.main.setBounds(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
   }
 
-  private centerCamera(snapshot: SimulationSnapshot): void {
-    if (snapshot.entities.length === 0) return;
-    const total = snapshot.entities.reduce(
-      (sum, entity) => {
-        const screen = worldToScreen(entity.position.x, entity.position.y);
-        return { x: sum.x + screen.x, y: sum.y + screen.y };
-      },
-      { x: 0, y: 0 },
-    );
-    this.cameras.main.centerOn(
-      total.x / snapshot.entities.length,
-      total.y / snapshot.entities.length,
-    );
+  private fitYard(): void {
+    if (!this.mapBounds) return;
+    const camera = this.cameras.main;
+    const center = boundsCenter(this.mapBounds);
+    camera.setZoom(fitZoom(camera.width, camera.height, this.mapBounds));
+    camera.centerOn(center.x, center.y);
+    this.publishZoom();
+  }
+
+  private consumeCameraRequests(): void {
+    const state = useGameStore.getState();
+    if (state.cameraToken !== this.lastCamera) {
+      this.lastCamera = state.cameraToken;
+      if (state.cameraMode === 'fit') {
+        this.autoFit = true;
+        this.fitYard();
+      } else {
+        this.autoFit = false;
+        this.centerOnSelection(true);
+      }
+    }
+    if (state.layoutToken !== this.lastLayout) {
+      this.lastLayout = state.layoutToken;
+      if (this.autoFit) this.fitYard();
+    }
+  }
+
+  private centerOnSelection(zoomIn: boolean): void {
+    const points = this.focusPoints();
+    if (points.length === 0) {
+      this.fitYard();
+      return;
+    }
+    const total = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), {
+      x: 0,
+      y: 0,
+    });
+    const camera = this.cameras.main;
+    if (zoomIn) {
+      camera.setZoom(Phaser.Math.Clamp(Math.max(camera.zoom, 1.35), 0.4, 2.4));
+    }
+    camera.centerOn(total.x / points.length, total.y / points.length);
+  }
+
+  private focusPoints(): { x: number; y: number }[] {
+    const { snapshot, selection } = useGameStore.getState();
+    if (!snapshot || !selection) return [];
+    if (selection.kind === 'responders') {
+      return selection.ids.flatMap((id) => {
+        const view = this.sprites.get(id);
+        return view ? [{ x: view.token.x, y: view.token.y }] : [];
+      });
+    }
+    if (selection.kind === 'team') {
+      return snapshot.team.memberIds.flatMap((id) => {
+        const view = this.sprites.get(id);
+        return view ? [{ x: view.token.x, y: view.token.y }] : [];
+      });
+    }
+    const view =
+      selection.kind === 'vehicle'
+        ? this.vehicleSprites.get(selection.id)
+        : selection.kind === 'fire'
+          ? this.fireSprites.get(selection.id)
+          : selection.kind === 'hydrant'
+            ? this.hydrantSprites.get(selection.id)
+            : selection.kind === 'object'
+              ? this.objectSprites.get(selection.id)
+              : undefined;
+    return view ? [{ x: view.token.x, y: view.token.y }] : [];
+  }
+
+  private publishZoom(): void {
+    const parent = this.game.canvas.parentElement;
+    parent?.setAttribute('data-zoom', this.cameras.main.zoom.toFixed(2));
+    parent?.setAttribute('data-camera', this.autoFit ? 'fit' : 'free');
   }
 
   private refreshBlocked(snapshot: SimulationSnapshot): void {
     const blocked = new Set(snapshot.blocked.map((tile) => `${tile.x},${tile.y}`));
+    const debug = useGameStore.getState().debug;
     for (const [key, image] of this.tileImages) {
-      image.setTexture(
-        blocked.has(key) ? 'tile-blocked' : this.roadTiles.has(key) ? 'tile-road' : 'tile-ground',
-      );
+      const asset = blocked.has(key)
+        ? assets.structure
+        : this.roadTiles.has(key)
+          ? assets.road
+          : assets.ground(key.split(',').reduce((sum, part) => sum + Number(part), 0));
+      image.setTexture(asset.key);
+      image.setOrigin(asset.originX, asset.originY);
+      image.setTint(debug && blocked.has(key) ? 0xffc1b0 : 0xffffff);
     }
   }
 
   private ensureSprites(snapshot: SimulationSnapshot): void {
     snapshot.entities.forEach((entity, index) => {
       if (this.sprites.has(entity.id)) return;
-      const token = this.add.image(0, 0, `responder-${index % 4}`).setOrigin(0.5, 0.5);
-      const label = this.add
-        .text(0, 0, entity.name, {
-          fontFamily: 'Segoe UI, sans-serif',
-          fontSize: '13px',
-          color: '#f4f7f5',
-          stroke: '#102018',
-          strokeThickness: 3,
-        })
-        .setOrigin(0.5, 1);
+      const asset = assets.responder(index);
+      const token = this.add.image(0, 0, asset.key).setOrigin(asset.originX, asset.originY);
+      const label = this.label(entity.name);
       this.sprites.set(entity.id, { token, label });
     });
   }
@@ -161,24 +262,17 @@ export class IsometricScene extends Phaser.Scene {
   private ensureObjects(snapshot: SimulationSnapshot): void {
     for (const object of snapshot.objects) {
       const screen = worldToScreen(object.position.x + 0.5, object.position.y + 0.5);
+      const asset = objectAsset(object.objectType, object.state);
       let view = this.objectSprites.get(object.id);
       if (!view) {
-        const token = this.add.image(screen.x, screen.y, textureFor(object)).setOrigin(0.5, 0.5);
-        const label = this.add
-          .text(screen.x, screen.y - 22, object.name, {
-            fontFamily: 'Segoe UI, sans-serif',
-            fontSize: '12px',
-            color: '#f4f7f5',
-            stroke: '#102018',
-            strokeThickness: 3,
-          })
-          .setOrigin(0.5, 1);
-        view = { token, label };
+        const token = this.add.image(screen.x, screen.y, asset.key).setOrigin(asset.originX, asset.originY);
+        view = { token, label: this.label(object.name) };
         this.objectSprites.set(object.id, view);
       }
-      view.token.setTexture(textureFor(object));
+      view.token.setTexture(asset.key);
+      view.token.setOrigin(asset.originX, asset.originY);
       view.token.setPosition(screen.x, screen.y);
-      view.label.setPosition(screen.x, screen.y - 22);
+      view.label.setPosition(screen.x, screen.y - 28);
       view.token.setDepth(screen.y + 6);
       view.label.setDepth(screen.y + 7);
     }
@@ -187,39 +281,45 @@ export class IsometricScene extends Phaser.Scene {
   private ensureVehicles(snapshot: SimulationSnapshot): void {
     for (const vehicle of snapshot.vehicles) {
       if (this.vehicleSprites.has(vehicle.id)) continue;
-      const token = this.add.image(0, 0, 'vehicle-engine').setOrigin(0.5, 0.5);
-      const label = this.add
-        .text(0, 0, vehicle.name, {
-          fontFamily: 'Segoe UI, sans-serif',
-          fontSize: '13px',
-          color: '#ffd7cc',
-          stroke: '#102018',
-          strokeThickness: 3,
-        })
-        .setOrigin(0.5, 1);
-      this.vehicleSprites.set(vehicle.id, { token, label });
+      const token = this.add
+        .image(0, 0, assets.engine.key)
+        .setOrigin(assets.engine.originX, assets.engine.originY);
+      this.vehicleSprites.set(vehicle.id, { token, label: this.label(vehicle.name) });
+    }
+  }
+
+  private ensureHydrants(snapshot: SimulationSnapshot): void {
+    for (const hydrant of snapshot.hydrants) {
+      if (this.hydrantSprites.has(hydrant.id)) continue;
+      const token = this.add
+        .image(0, 0, assets.hydrant.key)
+        .setOrigin(assets.hydrant.originX, assets.hydrant.originY);
+      this.hydrantSprites.set(hydrant.id, { token, label: this.label(hydrant.name) });
     }
   }
 
   private ensureFires(snapshot: SimulationSnapshot): void {
     for (const fire of snapshot.fires) {
       if (this.fireSprites.has(fire.id)) continue;
-      const token = this.add.image(0, 0, 'fire-live').setOrigin(0.5, 0.75);
-      const label = this.add
-        .text(0, 0, fire.name, {
-          fontFamily: 'Segoe UI, sans-serif',
-          fontSize: '12px',
-          color: '#ffd7a8',
-          stroke: '#102018',
-          strokeThickness: 3,
-        })
-        .setOrigin(0.5, 1);
-      this.fireSprites.set(fire.id, { token, label });
+      const token = this.add.image(0, 0, assets.fire.key).setOrigin(assets.fire.originX, assets.fire.originY);
+      this.fireSprites.set(fire.id, { token, label: this.label(fire.name) });
     }
   }
 
+  private label(name: string): Phaser.GameObjects.Text {
+    return this.add
+      .text(0, 0, name, {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '15px',
+        color: '#f4f7f5',
+        stroke: '#101418',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 1);
+  }
+
   private interpolate(): void {
-    const { snapshot, previousSnapshot, snapshotAt } = useGameStore.getState();
+    const { snapshot, previousSnapshot, snapshotAt, debug } = useGameStore.getState();
     if (!snapshot) return;
     const alpha = this.snap
       ? 1
@@ -234,8 +334,14 @@ export class IsometricScene extends Phaser.Scene {
       const x = previous.x + (entity.position.x - previous.x) * alpha;
       const y = previous.y + (entity.position.y - previous.y) * alpha;
       const screen = worldToScreen(x, y);
+      const next = entity.path[0];
+      if (next) {
+        const ahead = worldToScreen(next.x, next.y);
+        view.token.setFlipX(ahead.x < screen.x);
+      }
       view.token.setPosition(screen.x, screen.y);
-      view.label.setPosition(screen.x, screen.y - 24);
+      view.label.setText(debug ? `${entity.name}  ${entity.id}` : entity.name);
+      view.label.setPosition(screen.x, screen.y - 30);
       view.token.setDepth(screen.y + 8);
       view.label.setDepth(screen.y + 9);
     }
@@ -251,7 +357,8 @@ export class IsometricScene extends Phaser.Scene {
       const screen = worldToScreen(x, y);
       view.token.setPosition(screen.x, screen.y);
       view.token.setRotation(headingToScreen(heading));
-      view.label.setPosition(screen.x, screen.y - 28);
+      view.label.setText(debug ? `${vehicle.name}  ${vehicle.id}` : vehicle.name);
+      view.label.setPosition(screen.x, screen.y - 36);
       view.token.setDepth(screen.y + 4);
       view.label.setDepth(screen.y + 5);
     }
@@ -259,16 +366,73 @@ export class IsometricScene extends Phaser.Scene {
     for (const fire of snapshot.fires) {
       const view = this.fireSprites.get(fire.id);
       if (!view) continue;
+      const asset = fire.out ? assets.fireOut : assets.fire;
       const screen = worldToScreen(fire.position.x + 0.5, fire.position.y + 0.5);
       const ratio = fire.maxIntensity > 0 ? fire.intensity / fire.maxIntensity : 0;
-      view.token.setTexture(fire.out ? 'fire-out' : 'fire-live');
-      view.token.setScale(fire.out ? 0.45 : 0.7 + ratio * 0.55);
-      view.token.setAlpha(fire.out ? 0.4 : 1);
+      view.token.setTexture(asset.key);
+      view.token.setOrigin(asset.originX, asset.originY);
+      view.token.setScale(fire.out ? 0.7 : 0.85 + ratio * 0.45);
       view.token.setPosition(screen.x, screen.y);
       view.label.setText(fire.out ? `${fire.name} out` : fire.name);
-      view.label.setPosition(screen.x, screen.y - 28);
+      view.label.setPosition(screen.x, screen.y - 34);
       view.token.setDepth(screen.y + 3);
       view.label.setDepth(screen.y + 3.5);
+    }
+
+    for (const hydrant of snapshot.hydrants) {
+      const view = this.hydrantSprites.get(hydrant.id);
+      if (!view) continue;
+      const screen = worldToScreen(hydrant.position.x + 0.5, hydrant.position.y + 0.5);
+      view.token.setPosition(screen.x, screen.y);
+      view.label.setText(hydrant.connectionId ? `${hydrant.name} connected` : hydrant.name);
+      view.label.setPosition(screen.x, screen.y - 28);
+      view.token.setDepth(screen.y + 2);
+      view.label.setDepth(screen.y + 2.5);
+    }
+  }
+
+  private drawHoses(): void {
+    const snapshot = useGameStore.getState().snapshot;
+    const selection = useGameStore.getState().selection;
+    if (!snapshot || !this.hoseGraphics) return;
+    this.hoseGraphics.clear();
+    const selected = new Set(selection?.kind === 'responders' ? selection.ids : []);
+    for (const hose of snapshot.hoses) {
+      if (hose.route.length === 0) continue;
+      const color = hose.kind === 'supply' ? 0x3d7ec9 : 0xe04b3a;
+      this.hoseGraphics.lineStyle(hose.flow > 0 ? 5 : 3, color, hose.state === 'open' ? 1 : 0.75);
+      const first = hose.route[0];
+      if (!first) continue;
+      const start = worldToScreen(first.x, first.y);
+      this.hoseGraphics.beginPath();
+      this.hoseGraphics.moveTo(start.x, start.y);
+      for (const point of hose.route.slice(1)) {
+        const screen = worldToScreen(point.x, point.y);
+        this.hoseGraphics.lineTo(screen.x, screen.y);
+      }
+      this.hoseGraphics.strokePath();
+      const last = hose.route[hose.route.length - 1];
+      const previous = hose.route[hose.route.length - 2] ?? first;
+      if (last && hose.flow > 0) {
+        const end = worldToScreen(last.x, last.y);
+        const before = worldToScreen(previous.x, previous.y);
+        const angle = Math.atan2(end.y - before.y, end.x - before.x);
+        this.hoseGraphics.lineStyle(2, 0xb9dcff, 0.9);
+        for (const spread of [-0.5, -0.2, 0.2, 0.5]) {
+          this.hoseGraphics.lineBetween(
+            end.x,
+            end.y,
+            end.x + Math.cos(angle + spread) * 22,
+            end.y + Math.sin(angle + spread) * 22,
+          );
+        }
+      }
+      if (last && hose.operatorId && selected.has(hose.operatorId)) {
+        const end = worldToScreen(last.x, last.y);
+        const remaining = Math.max(0, hose.maxLength - hose.length);
+        this.hoseGraphics.lineStyle(1, color, 0.55);
+        this.hoseGraphics.strokeCircle(end.x, end.y, 14 + remaining * 8);
+      }
     }
   }
 
@@ -276,18 +440,25 @@ export class IsometricScene extends Phaser.Scene {
     const snapshot = useGameStore.getState().snapshot;
     if (!snapshot || !this.pathGraphics) return;
     this.pathGraphics.clear();
-    this.pathGraphics.lineStyle(2, 0xf2c14e, 0.8);
+    this.pathGraphics.lineStyle(2, 0xf2c14e, 0.9);
     for (const entity of snapshot.entities) {
       const view = this.sprites.get(entity.id);
       if (!view || entity.path.length === 0) continue;
       this.pathGraphics.beginPath();
       this.pathGraphics.moveTo(view.token.x, view.token.y);
+      let end = { x: view.token.x, y: view.token.y };
       for (const point of entity.path) {
-        const screen = worldToScreen(point.x, point.y);
-        this.pathGraphics.lineTo(screen.x, screen.y);
+        end = worldToScreen(point.x, point.y);
+        this.pathGraphics.lineTo(end.x, end.y);
       }
       this.pathGraphics.strokePath();
+      marker(this.pathGraphics, end.x, end.y, 0xf2c14e);
     }
+    snapshot.orders.forEach((order, index) => {
+      if (!order.destination) return;
+      const screen = worldToScreen(order.destination.x + 0.5, order.destination.y + 0.5);
+      marker(this.pathGraphics, screen.x, screen.y, index === 0 ? 0x7ecbff : 0x9aa8b5);
+    });
   }
 
   private drawSelection(): void {
@@ -295,38 +466,105 @@ export class IsometricScene extends Phaser.Scene {
     const selection = useGameStore.getState().selection;
     if (!this.selectionGraphics) return;
     this.selectionGraphics.clear();
+    if (this.hover?.kind === 'responder') {
+      const view = this.sprites.get(this.hover.id);
+      if (view) {
+        this.selectionGraphics.lineStyle(2, 0xf4f7f5, 0.7);
+        this.selectionGraphics.strokeCircle(view.token.x, view.token.y - 8, 16);
+      }
+    }
     if (!snapshot || !selection) return;
 
-    const ids =
-      selection.kind === 'team'
-        ? snapshot.team.memberIds
-        : selection.kind === 'responder'
-          ? [selection.id]
-          : [];
-    this.selectionGraphics.lineStyle(2, selection.kind === 'team' ? 0x8ee0b2 : 0x7ecbff, 1);
-    for (const id of ids) {
-      const view = this.sprites.get(id);
-      if (!view) continue;
-      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 18);
+    if (selection.kind === 'team' || selection.kind === 'responders') {
+      const ids = selection.kind === 'team' ? snapshot.team.memberIds : selection.ids;
+      const color = selection.kind === 'team' ? 0x8ee0b2 : 0x7ecbff;
+      this.selectionGraphics.lineStyle(selection.kind === 'team' ? 2 : 3, color, 1);
+      for (const id of ids) {
+        const view = this.sprites.get(id);
+        if (!view) continue;
+        this.selectionGraphics.strokeCircle(view.token.x, view.token.y - 8, 18);
+        if (selection.kind === 'team') {
+          this.selectionGraphics.strokeCircle(view.token.x, view.token.y - 8, 24);
+        }
+      }
     }
-    if (selection.kind === 'object') {
-      const view = this.objectSprites.get(selection.id);
-      if (!view) return;
+    const single =
+      selection.kind === 'object'
+        ? this.objectSprites.get(selection.id)
+        : selection.kind === 'vehicle'
+          ? this.vehicleSprites.get(selection.id)
+          : selection.kind === 'fire'
+            ? this.fireSprites.get(selection.id)
+            : selection.kind === 'hydrant'
+              ? this.hydrantSprites.get(selection.id)
+              : undefined;
+    if (single) {
       this.selectionGraphics.lineStyle(2, 0xe2b657, 1);
-      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 16);
+      this.selectionGraphics.strokeCircle(single.token.x, single.token.y - 6, selection.kind === 'vehicle' ? 30 : 16);
     }
-    if (selection.kind === 'vehicle') {
-      const view = this.vehicleSprites.get(selection.id);
-      if (!view) return;
-      this.selectionGraphics.lineStyle(2, 0xe07a3d, 1);
-      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 28);
+  }
+
+  private drawMarquee(): void {
+    if (!this.marqueeGraphics) return;
+    this.marqueeGraphics.clear();
+    if (!this.marquee) return;
+    const left = Math.min(this.marquee.left, this.marquee.right);
+    const top = Math.min(this.marquee.top, this.marquee.bottom);
+    const width = Math.abs(this.marquee.right - this.marquee.left);
+    const height = Math.abs(this.marquee.bottom - this.marquee.top);
+    this.marqueeGraphics.fillStyle(0x7ecbff, 0.15);
+    this.marqueeGraphics.lineStyle(1, 0x7ecbff, 0.9);
+    this.marqueeGraphics.fillRect(left, top, width, height);
+    this.marqueeGraphics.strokeRect(left, top, width, height);
+  }
+
+  private drawDebug(): void {
+    const snapshot = useGameStore.getState().snapshot;
+    const debug = useGameStore.getState().debug;
+    if (!snapshot || !this.debugGraphics) return;
+    this.debugGraphics.clear();
+    if (!debug) {
+      if (this.debugBuilt) {
+        for (const text of this.debugTexts) text.destroy();
+        this.debugTexts.length = 0;
+        this.debugBuilt = false;
+      }
+      return;
     }
-    if (selection.kind === 'fire') {
-      const view = this.fireSprites.get(selection.id);
-      if (!view) return;
-      this.selectionGraphics.lineStyle(2, 0xf26b1d, 1);
-      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 18);
+    if (!this.debugBuilt) {
+      for (let y = 0; y < snapshot.height; y += 1) {
+        for (let x = 0; x < snapshot.width; x += 1) {
+          const screen = worldToScreen(x + 0.5, y + 0.5);
+          const text = this.add
+            .text(screen.x, screen.y, `${x},${y}`, {
+              fontFamily: 'Segoe UI, sans-serif',
+              fontSize: '10px',
+              color: '#d5e0d8',
+            })
+            .setOrigin(0.5)
+            .setDepth(screen.y + 0.5);
+          this.debugTexts.push(text);
+        }
+      }
+      this.debugBuilt = true;
     }
+    this.debugGraphics.lineStyle(1, 0xf2c14e, 0.9);
+    for (const road of snapshot.roads) {
+      const screen = worldToScreen(road.position.x + 0.5, road.position.y + 0.5);
+      this.debugGraphics.strokeCircle(screen.x, screen.y, 8);
+    }
+  }
+
+  private respondersInRect(rect: ScreenRect): string[] {
+    const camera = this.cameras.main;
+    return idsInside(
+      [...this.sprites.entries()].map(([id, view]) => ({
+        id,
+        x: (view.token.x - camera.scrollX) * camera.zoom,
+        y: (view.token.y - camera.scrollY) * camera.zoom,
+      })),
+      rect,
+    );
   }
 
   private hitTest(worldX: number, worldY: number): SceneHit | null {
@@ -340,6 +578,7 @@ export class IsometricScene extends Phaser.Scene {
       }
     };
     for (const [id, view] of this.fireSprites) consider('fire', id, view, 24);
+    for (const [id, view] of this.hydrantSprites) consider('hydrant', id, view, 22);
     for (const [id, view] of this.objectSprites) consider('object', id, view, 22);
     for (const [id, view] of this.vehicleSprites) consider('vehicle', id, view, 36);
     for (const [id, view] of this.sprites) consider('responder', id, view, 22);
@@ -347,11 +586,11 @@ export class IsometricScene extends Phaser.Scene {
   }
 }
 
-function textureFor(object: ObjectSnapshot): string {
-  if (object.objectType === 'locker') return 'object-locker';
-  if (object.objectType === 'door')
-    return object.state === 'open' ? 'object-door-open' : 'object-door';
-  return object.state === 'operated' ? 'object-panel-on' : 'object-panel';
+function marker(graphics: Phaser.GameObjects.Graphics | undefined, x: number, y: number, color: number): void {
+  if (!graphics) return;
+  graphics.fillStyle(color, 0.9);
+  graphics.fillTriangle(x, y - 10, x + 8, y, x, y + 6);
+  graphics.fillTriangle(x, y - 10, x - 8, y, x, y + 6);
 }
 
 function roadTileKeys(snapshot: SimulationSnapshot): string[] {

@@ -290,10 +290,10 @@ describe('save and restore', () => {
     const before = sim.getSnapshot();
     const saved = sim.exportSave();
 
-    const version = restoreSimulation({ ...saved, schemaVersion: 2 });
+    const version = restoreSimulation({ ...saved, schemaVersion: 3 });
     expect(version.ok).toBe(false);
     if (!version.ok)
-      expect(version.message).toBe('This save uses schema version 2 and cannot be loaded.');
+      expect(version.message).toBe('This save uses schema version 3 and cannot be loaded.');
 
     const duplicate = structuredClone(saved);
     const item = duplicate.equipment[0];

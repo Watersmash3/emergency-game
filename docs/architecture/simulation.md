@@ -17,7 +17,9 @@ An entity has a stable string id and optional components:
 - `responder`: display name, and the vehicle id while the responder is aboard.
 - `teamMembership`: team id.
 - `interactable`: object type, state, required capability, and the tiles a responder must stand on.
-- `vehicle`: definition, heading, footprint, seats, occupants, driver, road node, and status.
+- `vehicle`: definition, heading, footprint, seats, occupants, driver, road node, status, and an optional pump.
+- `hydrant`: name, availability, flow capacity, the connected hose, and the tiles a responder must stand on.
+- `hose`: kind, stored equipment, maximum length, deployed route, connection state, source, target, operator, and current flow.
 - `fire`: name, intensity, maximum intensity, fuel, growth per tick, fuel use per tick, and suppression range.
 
 The training yard's team is a record of member ids and an optional apparatus id, not an entity. Occupancy is stored on the vehicle. It is not inferred from team membership. Incidents and objectives are also records. An incident stays active until every objective is satisfied. The training fire's objective is satisfied when that fire's intensity reaches zero.
@@ -40,16 +42,20 @@ The worker posts a snapshot after every accepted or rejected command, and after 
 
 ## Snapshot
 
-`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, vehicles, road nodes and edges, fires, incidents, inventory capacity, and tasks. Entity paths are included so the renderer can draw them without pathfinding. An aboard responder's position is derived from the vehicle. Fire intensity, fuel, and incident state are included so the HUD can show them without reading the simulation internals. The object survives `JSON.parse(JSON.stringify(snapshot))`.
+`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, vehicles, hydrants, hoses, road nodes and edges, fires, incidents, inventory capacity, tasks, queued orders, and recent notices. A vehicle with a pump includes tank level, pump state, pressure, supply intake, and attack discharges. Hose length is the deployed route length. Entity paths are included so the renderer can draw them without pathfinding. An aboard responder's position is derived from the vehicle. Fire intensity, fuel, and incident state are included so the HUD can show them without reading the simulation internals. The object survives `JSON.parse(JSON.stringify(snapshot))`.
 
 ## Saves
 
-The render snapshot is not a save file. `exportSave()` writes schema version 1, a portable document with entities, components, equipment, reservations, seats, road reservations, incidents, task progress, the tick, the pause flag, and the RNG state. It is taken between ticks, so a partial frame is not stored. `restoreSimulation()` parses that document, rebuilds the maps the simulation uses, and checks occupancy, ownership, and reservations. It does not run the original commands again. A failed restore returns a message and leaves the caller's simulation in place.
+The render snapshot is not a save file. `exportSave()` writes schema version 2, a portable document with entities, components, equipment, reservations, seats, road reservations, pump state, hydrants, hoses, incidents, task progress, queued orders, notices, the tick, the pause flag, and the RNG state. Orders and notices default to empty on older version 2 documents. A version 1 document is migrated by adding a stopped pump to each vehicle that has no pump field. It is taken between ticks, so a partial frame is not stored. `restoreSimulation()` parses that document, rebuilds the maps the simulation uses, and checks occupancy, ownership, reservations, and hose connections. It does not run the original commands again. A failed restore returns a message and leaves the caller's simulation in place.
 
-The browser keeps those documents in IndexedDB. Manual saves are listed ahead of the automatic slots. Autosave starts after a command or a load, then every 100 completed ticks writes an `autosave` record and keeps the previous one as `Previous recovery`. Reloading the page does not replace that recovery with the opening layout. A storage or quota failure is reported and does not replace the running simulation. A loaded snapshot recenters the view and places responders at the saved coordinates immediately.
+The browser keeps those documents in IndexedDB. Manual saves are listed ahead of the automatic slots. Autosave starts after a command or a load, then every 100 completed ticks writes an `autosave` record and keeps the previous one as `Previous recovery`. Reloading the page does not replace that recovery with the opening layout. A storage or quota failure is reported and does not replace the running simulation. A loaded snapshot fits the training yard in the viewport and places responders at the saved coordinates immediately.
 
 ## Fire
 
-`stepFire` runs after vehicle movement and before tasks. A burning fire with fuel increases intensity by its growth, capped at the maximum, and decreases fuel by its fuel use. Fuel at zero stops growth. It does not put the fire out. Suppression is the only way intensity reaches zero. There is no random spread and no second fire.
+`stepFire` runs after water accounting and before tasks. A burning fire with fuel increases intensity by its growth, capped at the maximum, and decreases fuel by its fuel use. Fuel at zero stops growth. It does not put the fire out. Suppression is the only way intensity reaches zero. There is no random spread and no second fire.
 
-Pause returns before any system runs, so a paused tick does not grow a fire or apply suppression.
+`stepWater` runs after vehicle movement and before fire growth. It clears delivered flow, stops a pump whose vehicle is moving, and adds hydrant water to the tank when the pump is operating and its supply valve is open. Attack lines consume tank water later in the same tick, so a hydrant that matches the attack demand keeps the tank supplied. Water is not created when the pump is off or the tank and supply are empty.
+
+After tasks and incident checks, the tick promotes one queued order per free responder and records status notices. A notice is emitted when a condition changes, so a warning is not repeated on every tick.
+
+Pause returns before any system runs, so a paused tick does not grow a fire, move water, apply suppression, or promote a queue. A command issued while paused can still start its task immediately.

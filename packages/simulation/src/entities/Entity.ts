@@ -5,6 +5,8 @@ import type { Responder } from '../components/responder.ts';
 import type { TeamMembership } from '../components/teamMembership.ts';
 import type { Vehicle } from '../components/vehicle.ts';
 import type { Fire } from '../components/fire.ts';
+import type { Hose } from '../components/hose.ts';
+import type { Hydrant } from '../components/hydrant.ts';
 
 /** A stable id plus the components the entity currently has. */
 export interface Entity {
@@ -16,4 +18,6 @@ export interface Entity {
   interactable?: Interactable;
   vehicle?: Vehicle;
   fire?: Fire;
+  hydrant?: Hydrant;
+  hose?: Hose;
 }

@@ -4,6 +4,7 @@ export interface EquipmentDefinitionRecord {
   capabilities: string[];
   agent: number | null;
   suppression: number;
+  maxLength: number | null;
 }
 
 export interface EquipmentInstance {

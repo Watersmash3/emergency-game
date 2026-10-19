@@ -1,4 +1,4 @@
-export { commandSchema, type Command } from './commands.ts';
+export { commandSchema, queuedCommandSchema, type Command, type QueuedCommand } from './commands.ts';
 export {
   workerInboundSchema,
   workerOutboundSchema,
@@ -33,6 +33,8 @@ export {
 } from './scenario.ts';
 export {
   SAVE_SCHEMA_VERSION,
+  migrateSave,
+  prepareSaveDocument,
   saveDocumentSchema,
   saveSchemaMessage,
   type SaveDocument,

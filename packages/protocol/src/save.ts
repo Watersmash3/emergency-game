@@ -1,10 +1,27 @@
 import { z } from 'zod';
 
+import { queuedCommandSchema } from './commands.ts';
 import { objectTypeSchema, teamDefinitionSchema, tileSchema, vec2Schema } from './scenario.ts';
 import { taskStateSchema } from './snapshot.ts';
 
 /** Version of the portable save document. Render snapshots are not save files. */
-export const SAVE_SCHEMA_VERSION = 1;
+export const SAVE_SCHEMA_VERSION = 2;
+
+const SUPPORTED_SAVE_VERSIONS = new Set([1, SAVE_SCHEMA_VERSION]);
+
+function waterSave<const K extends string>(kind: K) {
+  return z.object({
+    ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal(kind),
+    equipmentId: z.string().min(1).optional(),
+    vehicleId: z.string().min(1).optional(),
+    hydrantId: z.string().min(1).optional(),
+    hoseEntityId: z.string().min(1).optional(),
+    destination: tileSchema.optional(),
+    role: z.enum(['supply', 'pump', 'attack']).optional(),
+  });
+}
 
 const saveTaskCommon = {
   id: z.string().min(1),
@@ -86,6 +103,17 @@ export const saveTaskSchema = z.discriminatedUnion('kind', [
     ...activityFields,
     kind: z.literal('suppress-incident'),
   }),
+  waterSave('connect-supply'),
+  waterSave('disconnect-supply'),
+  waterSave('open-supply'),
+  waterSave('close-supply'),
+  waterSave('start-pump'),
+  waterSave('stop-pump'),
+  waterSave('deploy-attack'),
+  waterSave('operate-nozzle'),
+  waterSave('reposition-nozzle'),
+  waterSave('disconnect-attack'),
+  waterSave('establish-fire-attack'),
   z.object({
     ...saveTaskCommon,
     kind: z.literal('interact'),
@@ -145,6 +173,18 @@ export const saveEntitySchema = z.object({
       status: z.enum(['idle', 'boarding', 'moving']),
       nodeId: z.string().min(1),
       destinationNodeId: z.string().min(1).nullable(),
+      pump: z
+        .object({
+          state: z.enum(['off', 'starting', 'operating', 'unavailable']),
+          pressure: z.number().nonnegative(),
+          maxDelivery: z.number().positive(),
+          tankCapacity: z.number().positive(),
+          tank: z.number().nonnegative(),
+          intakeId: z.string().min(1).nullable(),
+          discharges: z.array(z.string().min(1)),
+          delivered: z.number().nonnegative(),
+        })
+        .nullable(),
       seatReservations: z.array(
         z.object({
           responderId: z.string().min(1),
@@ -162,6 +202,30 @@ export const saveEntitySchema = z.object({
       growth: z.number().nonnegative(),
       fuelUse: z.number().nonnegative(),
       range: z.number().int().nonnegative(),
+    })
+    .optional(),
+  hydrant: z
+    .object({
+      name: z.string().min(1),
+      available: z.boolean(),
+      flowCapacity: z.number().positive(),
+      connectionId: z.string().min(1).nullable(),
+      interactionTiles: z.array(tileSchema),
+    })
+    .optional(),
+  hose: z
+    .object({
+      kind: z.enum(['supply', 'attack']),
+      name: z.string().min(1),
+      definitionId: z.string().min(1),
+      equipmentId: z.string().min(1),
+      maxLength: z.number().positive(),
+      route: z.array(vec2Schema).min(1),
+      state: z.enum(['connected', 'open']),
+      sourceId: z.string().min(1).nullable(),
+      targetId: z.string().min(1).nullable(),
+      operatorId: z.string().min(1).nullable(),
+      flow: z.number().nonnegative(),
     })
     .optional(),
 });
@@ -188,6 +252,7 @@ export const saveDocumentSchema = z.object({
       capabilities: z.array(z.string().min(1)),
       agent: z.number().nonnegative().nullable(),
       suppression: z.number().nonnegative(),
+      maxLength: z.number().positive().nullable().optional(),
     }),
   ),
   equipment: z.array(
@@ -240,15 +305,69 @@ export const saveDocumentSchema = z.object({
       taskId: z.string().min(1),
     }),
   ),
+  orders: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        command: queuedCommandSchema,
+      }),
+    )
+    .default([]),
+  notices: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        tick: z.number().int().nonnegative(),
+        key: z.string().min(1),
+        message: z.string().min(1),
+        tone: z.enum(['info', 'warning', 'good']),
+      }),
+    )
+    .default([]),
 });
 
 export type SaveDocument = z.infer<typeof saveDocumentSchema>;
 
 export function saveSchemaMessage(input: unknown): string {
-  if (isRecord(input) && 'schemaVersion' in input && input.schemaVersion !== SAVE_SCHEMA_VERSION) {
+  if (
+    isRecord(input) &&
+    'schemaVersion' in input &&
+    !SUPPORTED_SAVE_VERSIONS.has(input.schemaVersion as number)
+  ) {
     return `This save uses schema version ${String(input.schemaVersion)} and cannot be loaded.`;
   }
   return 'This save is invalid or incomplete.';
+}
+
+const MIGRATED_PUMP = {
+  state: 'off',
+  pressure: 0,
+  maxDelivery: 1,
+  tankCapacity: 80,
+  tank: 80,
+  intakeId: null,
+  discharges: [],
+  delivered: 0,
+} as const;
+
+/** Upgrade a version 1 document to version 2. Later versions are left unchanged. */
+export function migrateSave(input: unknown): unknown {
+  if (!isRecord(input) || input.schemaVersion !== 1) return input;
+  const entities = Array.isArray(input.entities) ? input.entities.map(migrateEntity) : input.entities;
+  return { ...input, schemaVersion: SAVE_SCHEMA_VERSION, entities };
+}
+
+export function prepareSaveDocument(
+  input: unknown,
+): { ok: true; document: SaveDocument } | { ok: false; message: string } {
+  const parsed = saveDocumentSchema.safeParse(migrateSave(input));
+  if (!parsed.success) return { ok: false, message: saveSchemaMessage(input) };
+  return { ok: true, document: parsed.data };
+}
+
+function migrateEntity(entity: unknown): unknown {
+  if (!isRecord(entity) || !isRecord(entity.vehicle) || 'pump' in entity.vehicle) return entity;
+  return { ...entity, vehicle: { ...entity.vehicle, pump: MIGRATED_PUMP } };
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {

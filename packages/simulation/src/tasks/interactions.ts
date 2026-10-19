@@ -32,8 +32,10 @@ import type {
   RetrieveEquipmentTask,
   Task,
 } from './types.ts';
+import { isWaterTask } from './types.ts';
 import { advanceSuppressionTask } from './suppression.ts';
 import { advanceVehicleTask } from './vehicles.ts';
+import { advanceWaterTask, isRunningWater } from './water.ts';
 import { approachTiles, blocksPedestrian, canTakeFrom } from './vehicleRules.ts';
 
 const TAKE_TICKS = 10;
@@ -133,6 +135,19 @@ export function stepTasks(world: World): void {
       case 'suppress-fire':
       case 'suppress-incident':
         advanceSuppressionTask(world, task);
+        break;
+      case 'connect-supply':
+      case 'disconnect-supply':
+      case 'open-supply':
+      case 'close-supply':
+      case 'start-pump':
+      case 'stop-pump':
+      case 'deploy-attack':
+      case 'operate-nozzle':
+      case 'reposition-nozzle':
+      case 'disconnect-attack':
+      case 'establish-fire-attack':
+        if (isRunningWater(task)) advanceWaterTask(world, task);
         break;
       default: {
         const unreachable: never = task;
@@ -483,7 +498,7 @@ function advanceInteract(world: World, task: Task & { kind: 'interact' }): void 
   if (parent && parent.kind !== 'move' && parent.kind !== 'interact') {
     parent.progressTicks = task.progressTicks;
     parent.durationTicks = task.durationTicks;
-    parent.step = 'interact';
+    if (!isWaterTask(parent)) parent.step = 'interact';
   }
   if (task.progressTicks >= task.durationTicks) completeTask(world, task);
 }

@@ -67,6 +67,19 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       agent: 80,
       suppression: 0.02,
     },
+    {
+      id: 'supply-hose',
+      name: 'Supply hose',
+      capabilities: ['supply'],
+      maxLength: 10,
+    },
+    {
+      id: 'attack-hose',
+      name: 'Attack hose',
+      capabilities: ['attack', 'suppress'],
+      suppression: 0.05,
+      maxLength: 16,
+    },
   ],
   equipment: [
     { id: 'item-halligan', definitionId: 'halligan', locationId: 'locker-staging' },
@@ -79,6 +92,8 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       definitionId: 'extinguisher',
       locationId: 'apparatus-engine-1',
     },
+    { id: 'item-supply-hose', definitionId: 'supply-hose', locationId: 'apparatus-engine-1' },
+    { id: 'item-attack-hose', definitionId: 'attack-hose', locationId: 'apparatus-engine-1' },
   ],
   inventoryCapacity: 2,
   roadNodes: [
@@ -103,6 +118,7 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       capacity: 4,
       speed: 8,
       footprint: { width: 2, height: 1 },
+      pump: { tankCapacity: 80, maxDelivery: 1 },
     },
   ],
   vehicles: [
@@ -112,6 +128,14 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       definitionId: 'fire_engine_standard',
       nodeId: 'n-north',
       heading: 0,
+    },
+  ],
+  hydrants: [
+    {
+      id: 'hydrant-staging',
+      name: 'Staging hydrant',
+      position: { x: 15, y: 10 },
+      flowCapacity: 1,
     },
   ],
   fires: [

@@ -66,6 +66,7 @@ export function tilesAround(world: World, tile: Tile): Tile[] {
 
 export function approachTiles(world: World, entity: Entity): Tile[] {
   if (entity.interactable) return entity.interactable.interactionTiles;
+  if (entity.hydrant) return entity.hydrant.interactionTiles;
   if (entity.vehicle && entity.position) return tilesAround(world, tileOf(entity.position));
   return [];
 }
