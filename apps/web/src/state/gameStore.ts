@@ -6,6 +6,7 @@ export type Selection =
   | { kind: 'team'; id: string }
   | { kind: 'object'; id: string }
   | { kind: 'vehicle'; id: string }
+  | { kind: 'fire'; id: string }
   | null;
 
 export interface CommandResultView {
@@ -21,11 +22,16 @@ interface GameState {
   selection: Selection;
   lastResult: CommandResultView | null;
   error: string | null;
+  saveNotice: string | null;
+  savesRevision: number;
   applyOutbound: (message: WorkerOutbound) => void;
+  setSaveNotice: (notice: string | null) => void;
+  bumpSaves: () => void;
   selectResponder: (id: string) => void;
   selectTeam: (id: string) => void;
   selectObject: (id: string) => void;
   selectVehicle: (id: string) => void;
+  selectFire: (id: string) => void;
   clearSelection: () => void;
   reset: () => void;
 }
@@ -37,6 +43,8 @@ const initial = {
   selection: null,
   lastResult: null,
   error: null,
+  saveNotice: null,
+  savesRevision: 0,
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -67,7 +75,10 @@ export const useGameStore = create<GameState>((set) => ({
   selectTeam: (id) => set({ selection: { kind: 'team', id } }),
   selectObject: (id) => set({ selection: { kind: 'object', id } }),
   selectVehicle: (id) => set({ selection: { kind: 'vehicle', id } }),
+  selectFire: (id) => set({ selection: { kind: 'fire', id } }),
   clearSelection: () => set({ selection: null }),
+  setSaveNotice: (saveNotice) => set({ saveNotice }),
+  bumpSaves: () => set((state) => ({ savesRevision: state.savesRevision + 1 })),
   reset: () => set(initial),
 }));
 

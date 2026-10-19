@@ -17,6 +17,8 @@ export function createPlaceholderTextures(scene: Phaser.Scene): void {
   drawMarker(scene, 'object-panel-on', 0xf4f7f5);
   drawDiamond(scene, 'tile-road', 0x6d6456, 0x3c342c);
   drawVehicle(scene);
+  drawFire(scene, 'fire-live', 0xf26b1d, 0xf2c14e);
+  drawFire(scene, 'fire-out', 0x6d6456, 0x3c342c);
 }
 
 function drawDiamond(scene: Phaser.Scene, key: string, fill: number, stroke: number): void {
@@ -56,6 +58,17 @@ function drawVehicle(scene: Phaser.Scene): void {
   graphics.lineStyle(3, 0x17211c, 1);
   graphics.strokeRect(8, 30, 68, 24);
   graphics.generateTexture('vehicle-engine', size, size);
+  graphics.destroy();
+}
+
+function drawFire(scene: Phaser.Scene, key: string, core: number, glow: number): void {
+  const size = 36;
+  const graphics = scene.add.graphics();
+  graphics.fillStyle(glow, 0.9);
+  graphics.fillTriangle(18, 2, 32, 30, 4, 30);
+  graphics.fillStyle(core, 1);
+  graphics.fillTriangle(18, 10, 26, 30, 10, 30);
+  graphics.generateTexture(key, size, size);
   graphics.destroy();
 }
 

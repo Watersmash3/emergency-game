@@ -32,6 +32,14 @@ export {
   type WorldObjectDefinition,
 } from './scenario.ts';
 export {
+  SAVE_SCHEMA_VERSION,
+  saveDocumentSchema,
+  saveSchemaMessage,
+  type SaveDocument,
+  type SaveEntity,
+  type SaveTask,
+} from './save.ts';
+export {
   entitySnapshotSchema,
   objectSnapshotSchema,
   simulationSnapshotSchema,

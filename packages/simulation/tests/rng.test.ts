@@ -11,4 +11,11 @@ describe('mulberry32', () => {
     expect(values).toEqual([right.next(), right.next(), right.next()]);
     expect(left.getState()).toBe(right.getState());
   });
+
+  it('resumes from an exported state', () => {
+    const source = createRng(1104);
+    source.next();
+    const resumed = createRng(1104, source.getState());
+    expect(resumed.next()).toBe(source.next());
+  });
 });

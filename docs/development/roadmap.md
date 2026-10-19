@@ -15,21 +15,18 @@
 - Team equipment retrieval that keeps working when one member is overridden
 - Engine 1 as a vehicle entity with its own occupants, seats, and stored equipment
 - Road-graph navigation, crew boarding, and a compound respond order
+- A training-yard fire incident with tick-driven growth, fuel, and suppression
+- Individual `suppress-fire` and team `suppress-incident` orders, including reassignment after an override
+- Versioned local saves, load, delete, and a rotating autosave in IndexedDB
 
 ## Next milestone
 
-One small structure-fire scenario on this command model:
-
-- A building with a door and a few rooms, still on one floor
-- A fire state that spreads on a slower tick than movement
-- A suppress order that requires a responder to carry an extinguisher to an operating position
-- The same override rules: pulling one firefighter off the line does not cancel the crew
-- The crew can respond in Engine 1 and take the extinguisher from its storage
+Group selection and queued orders, so one responder can be given a second order without losing the first.
 
 ## Deliberately deferred
 
 - Drag-select, shift-queue, and number-key groups
-- IndexedDB save slots and migrations
+- Save migrations beyond schema version 1
 - Tiled map import
 - Vehicle steering, traffic, pumps, hoses, and ladders
 - Police, EMS, extrication, hazmat, and civilians

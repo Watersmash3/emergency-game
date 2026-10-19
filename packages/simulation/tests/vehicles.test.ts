@@ -252,7 +252,9 @@ describe('vehicles', () => {
     const sim = engine();
     sim.apply({ type: 'board-vehicle', responderId: 'a', vehicleId: 'engine' });
     until(sim, () => apparatus(sim).driverId === 'a');
-    expect(sim.apply({ type: 'board-team', teamId: 'engine-1', vehicleId: 'engine' }).ok).toBe(true);
+    expect(sim.apply({ type: 'board-team', teamId: 'engine-1', vehicleId: 'engine' }).ok).toBe(
+      true,
+    );
     until(sim, () => apparatus(sim).occupants.length === 4);
     expect(tasksFor(sim, 'a').some((task) => task.state === 'failed')).toBe(false);
     expect(apparatus(sim).occupants.map((occupant) => occupant.id)).toContain('a');

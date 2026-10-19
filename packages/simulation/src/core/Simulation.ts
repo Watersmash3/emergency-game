@@ -7,27 +7,50 @@ import {
   type ObjectSnapshot,
   type Scenario,
   type SimulationSnapshot,
+  type SaveDocument,
   type TaskSnapshot,
 } from '@emergency/protocol';
 
 import type { EquipmentInstance } from '../components/equipment.ts';
+import type { IncidentRecord, ObjectiveRecord } from '../components/incident.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { inBounds, isBlocked, tileCenter, tileKey, tileOf } from '../navigation/grid.ts';
 import { buildAdjacency } from '../navigation/road.ts';
+import { stepFire } from '../systems/fireSystem.ts';
 import { stepMovement } from '../systems/movementSystem.ts';
 import { stepVehicles, syncOccupants } from '../systems/vehicleSystem.ts';
+import { evaluateIncidents } from '../tasks/fireRules.ts';
 import { stepTasks } from '../tasks/interactions.ts';
 import { computeInteractionTiles } from '../tasks/lifecycle.ts';
 import { applyCommand, type CommandResult } from '../tasks/moveTasks.ts';
 import type { Task } from '../tasks/types.ts';
+import { exportWorld, readSave } from '../persistence/save.ts';
 import { createRng } from './rng.ts';
 import { MAX_TICKS_PER_STEP, type World } from './world.ts';
+
+export interface RestoredSimulation {
+  ok: true;
+  simulation: Simulation;
+}
+
+export interface RejectedSave {
+  ok: false;
+  message: string;
+}
 
 export class Simulation {
   private readonly world: World;
 
-  constructor(scenarioInput: Scenario) {
-    this.world = createWorld(scenarioInput);
+  private constructor(world: World) {
+    this.world = world;
+  }
+
+  static create(scenario: Scenario): Simulation {
+    return new Simulation(createWorld(scenario));
+  }
+
+  static fromWorld(world: World): Simulation {
+    return new Simulation(world);
   }
 
   apply(command: Command): CommandResult {
@@ -40,7 +63,9 @@ export class Simulation {
     this.world.tick += 1;
     stepMovement(this.world);
     stepVehicles(this.world);
+    stepFire(this.world);
     stepTasks(this.world);
+    evaluateIncidents(this.world);
     syncOccupants(this.world);
   }
 
@@ -60,10 +85,26 @@ export class Simulation {
   getSnapshot(): SimulationSnapshot {
     return snapshotOf(this.world);
   }
+
+  currentTick(): number {
+    return this.world.tick;
+  }
+
+  /** Capture the world after the last completed tick. Partial frame time is not stored. */
+  exportSave(): SaveDocument {
+    return exportWorld(this.world);
+  }
 }
 
 export function createSimulation(scenario: Scenario): Simulation {
-  return new Simulation(scenario);
+  return Simulation.create(scenario);
+}
+
+/** Build a new simulation from a save. The caller keeps the previous instance on failure. */
+export function restoreSimulation(input: unknown): RestoredSimulation | RejectedSave {
+  const read = readSave(input);
+  if (!read.ok) return read;
+  return { ok: true, simulation: Simulation.fromWorld(read.world) };
 }
 
 function createWorld(scenarioInput: Scenario): World {
@@ -197,6 +238,8 @@ function createWorld(scenarioInput: Scenario): World {
         id: definition.id,
         name: definition.name,
         capabilities: [...definition.capabilities],
+        agent: definition.agent ?? null,
+        suppression: definition.suppression ?? 0,
       },
     ]),
   );
@@ -225,7 +268,57 @@ function createWorld(scenarioInput: Scenario): World {
       ownerId: placement.ownerId ?? null,
       locationId: placement.locationId ?? null,
       reservedByTaskId: null,
+      agent: catalog.get(placement.definitionId)?.agent ?? null,
     });
+  }
+
+  for (const fire of scenario.fires) {
+    if (entities.has(fire.id)) throw new Error(`Duplicate entity id ${fire.id}`);
+    if (
+      !inBounds(scenario.width, scenario.height, fire.position) ||
+      isBlocked(blocked, fire.position)
+    ) {
+      throw new Error(`Fire ${fire.id} is on a blocked tile`);
+    }
+    if (fire.intensity > fire.maxIntensity) {
+      throw new Error(`Fire ${fire.id} starts above its maximum intensity`);
+    }
+    const center = tileCenter(fire.position);
+    entities.set(fire.id, {
+      id: fire.id,
+      position: { x: center.x, y: center.y },
+      fire: {
+        name: fire.name,
+        intensity: fire.intensity,
+        maxIntensity: fire.maxIntensity,
+        fuel: fire.fuel,
+        growth: fire.growth,
+        fuelUse: fire.fuelUse,
+        range: fire.range,
+      },
+    });
+  }
+
+  const incidents = new Map<string, IncidentRecord>();
+  const objectives = new Map<string, ObjectiveRecord>();
+  for (const incident of scenario.incidents) {
+    if (incidents.has(incident.id) || entities.has(incident.id)) {
+      throw new Error(`Duplicate incident id ${incident.id}`);
+    }
+    incidents.set(incident.id, { id: incident.id, name: incident.name, state: 'active' });
+    for (const objective of incident.objectives) {
+      if (objectives.has(objective.id)) throw new Error(`Duplicate objective id ${objective.id}`);
+      if (!entities.get(objective.targetId)?.fire) {
+        throw new Error(`Objective ${objective.id} has an unknown fire`);
+      }
+      objectives.set(objective.id, {
+        id: objective.id,
+        incidentId: incident.id,
+        kind: objective.kind,
+        targetId: objective.targetId,
+        state: 'open',
+      });
+    }
   }
 
   return {
@@ -251,6 +344,8 @@ function createWorld(scenarioInput: Scenario): World {
     roadEdges: scenario.roadEdges.map((edge) => ({ from: edge.from, to: edge.to })),
     reservedNodes: new Map(),
     reservedExits: new Map(),
+    incidents,
+    objectives,
     tick: 0,
     paused: false,
     accumulatorMs: 0,
@@ -334,6 +429,39 @@ function snapshotOf(world: World): SimulationSnapshot {
     roadEdges: world.roadEdges.map((edge) => ({ from: edge.from, to: edge.to })),
     inventoryCapacity: world.inventoryCapacity,
     tasks,
+    fires: [...world.entities.values()]
+      .filter((entity) => entity.fire && entity.position)
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((entity) => {
+        const fire = entity.fire;
+        const position = entity.position;
+        if (!fire || !position) throw new Error(`Fire ${entity.id} is incomplete`);
+        return {
+          id: entity.id,
+          name: fire.name,
+          position: tileOf(position),
+          intensity: fire.intensity,
+          maxIntensity: fire.maxIntensity,
+          fuel: fire.fuel,
+          out: fire.intensity <= 0,
+        };
+      }),
+    incidents: [...world.incidents.values()]
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((incident) => ({
+        id: incident.id,
+        name: incident.name,
+        state: incident.state,
+        objectives: [...world.objectives.values()]
+          .filter((objective) => objective.incidentId === incident.id)
+          .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+          .map((objective) => ({
+            id: objective.id,
+            kind: objective.kind,
+            targetId: objective.targetId,
+            state: objective.state,
+          })),
+      })),
   };
 }
 
@@ -422,6 +550,7 @@ function describeEquipment(world: World, item: EquipmentInstance): CarriedEquipm
     definitionId: item.definitionId,
     name: definition?.name ?? item.definitionId,
     capabilities: definition ? [...definition.capabilities] : [],
+    ...(item.agent !== null ? { agent: item.agent } : {}),
   };
 }
 
@@ -470,6 +599,9 @@ function snapshotTask(world: World, task: Task): TaskSnapshot {
   if (task.kind === 'board-vehicle' || task.kind === 'exit-vehicle') {
     return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
   }
+  if (task.kind === 'suppress-fire' || task.kind === 'suppress-incident') {
+    return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
+  }
   if (task.kind === 'drive-vehicle') {
     return {
       ...common,
@@ -479,14 +611,18 @@ function snapshotTask(world: World, task: Task): TaskSnapshot {
       ...progress,
     };
   }
-  return {
-    ...common,
-    kind: 'respond',
-    targetId: task.targetId,
-    destinationNodeId: task.destinationNodeId,
-    disembark: task.disembark,
-    ...progress,
-  };
+  if (task.kind === 'respond') {
+    return {
+      ...common,
+      kind: 'respond',
+      targetId: task.targetId,
+      destinationNodeId: task.destinationNodeId,
+      disembark: task.disembark,
+      ...progress,
+    };
+  }
+  const unreachable: never = task;
+  return unreachable;
 }
 
 function displayedProgress(

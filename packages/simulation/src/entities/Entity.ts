@@ -4,6 +4,7 @@ import type { Position } from '../components/position.ts';
 import type { Responder } from '../components/responder.ts';
 import type { TeamMembership } from '../components/teamMembership.ts';
 import type { Vehicle } from '../components/vehicle.ts';
+import type { Fire } from '../components/fire.ts';
 
 /** A stable id plus the components the entity currently has. */
 export interface Entity {
@@ -14,4 +15,5 @@ export interface Entity {
   teamMembership?: TeamMembership;
   interactable?: Interactable;
   vehicle?: Vehicle;
+  fire?: Fire;
 }

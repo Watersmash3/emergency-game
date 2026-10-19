@@ -6,4 +6,4 @@ The first services are structural firefighting, then police, EMS, and technical 
 
 The game is single-player and runs on the local machine. Optional donations or a paid release may come later. The game does not require accounts, payments, or a game server.
 
-The training yard is the current playable slice. The next milestone is one small structure fire that uses the same team and override model.
+The training yard is the current playable slice: Engine 1 can respond, the crew can suppress the yard fire, and that incident can be saved and loaded. The next milestone is queued orders for a single responder.

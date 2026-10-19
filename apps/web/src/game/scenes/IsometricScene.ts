@@ -4,6 +4,7 @@ import Phaser from 'phaser';
 
 import { useGameStore } from '../../state/gameStore.ts';
 import { bindSceneInput, type SceneHit } from '../input/sceneInput.ts';
+import { isTickContinuation } from '../rendering/continuation.ts';
 import { worldToScreen } from '../rendering/iso.ts';
 import { createPlaceholderTextures } from '../rendering/textures.ts';
 
@@ -17,11 +18,13 @@ export class IsometricScene extends Phaser.Scene {
   private readonly sprites = new Map<string, SpriteView>();
   private readonly objectSprites = new Map<string, SpriteView>();
   private readonly vehicleSprites = new Map<string, SpriteView>();
+  private readonly fireSprites = new Map<string, SpriteView>();
   private readonly tileImages = new Map<string, Phaser.GameObjects.Image>();
   private readonly roadTiles = new Set<string>();
   private pathGraphics?: Phaser.GameObjects.Graphics;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private mapReady = false;
+  private snap = false;
 
   constructor() {
     super('incident');
@@ -58,17 +61,21 @@ export class IsometricScene extends Phaser.Scene {
 
   private syncFromStore(): void {
     if (!this.isLive()) return;
-    const snapshot = useGameStore.getState().snapshot;
+    const { snapshot, previousSnapshot } = useGameStore.getState();
     if (!snapshot) return;
+    this.snap = !isTickContinuation(previousSnapshot, snapshot);
     if (!this.mapReady) {
       this.buildMap(snapshot);
       this.mapReady = true;
+      this.centerCamera(snapshot);
+    } else if (this.snap) {
       this.centerCamera(snapshot);
     }
     this.refreshBlocked(snapshot);
     this.ensureSprites(snapshot);
     this.ensureObjects(snapshot);
     this.ensureVehicles(snapshot);
+    this.ensureFires(snapshot);
   }
 
   private buildMap(snapshot: SimulationSnapshot): void {
@@ -194,10 +201,29 @@ export class IsometricScene extends Phaser.Scene {
     }
   }
 
+  private ensureFires(snapshot: SimulationSnapshot): void {
+    for (const fire of snapshot.fires) {
+      if (this.fireSprites.has(fire.id)) continue;
+      const token = this.add.image(0, 0, 'fire-live').setOrigin(0.5, 0.75);
+      const label = this.add
+        .text(0, 0, fire.name, {
+          fontFamily: 'Segoe UI, sans-serif',
+          fontSize: '12px',
+          color: '#ffd7a8',
+          stroke: '#102018',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5, 1);
+      this.fireSprites.set(fire.id, { token, label });
+    }
+  }
+
   private interpolate(): void {
     const { snapshot, previousSnapshot, snapshotAt } = useGameStore.getState();
     if (!snapshot) return;
-    const alpha = Phaser.Math.Clamp((performance.now() - snapshotAt) / FIXED_DT_MS, 0, 1);
+    const alpha = this.snap
+      ? 1
+      : Phaser.Math.Clamp((performance.now() - snapshotAt) / FIXED_DT_MS, 0, 1);
 
     for (const entity of snapshot.entities) {
       const view = this.sprites.get(entity.id);
@@ -228,6 +254,21 @@ export class IsometricScene extends Phaser.Scene {
       view.label.setPosition(screen.x, screen.y - 28);
       view.token.setDepth(screen.y + 4);
       view.label.setDepth(screen.y + 5);
+    }
+
+    for (const fire of snapshot.fires) {
+      const view = this.fireSprites.get(fire.id);
+      if (!view) continue;
+      const screen = worldToScreen(fire.position.x + 0.5, fire.position.y + 0.5);
+      const ratio = fire.maxIntensity > 0 ? fire.intensity / fire.maxIntensity : 0;
+      view.token.setTexture(fire.out ? 'fire-out' : 'fire-live');
+      view.token.setScale(fire.out ? 0.45 : 0.7 + ratio * 0.55);
+      view.token.setAlpha(fire.out ? 0.4 : 1);
+      view.token.setPosition(screen.x, screen.y);
+      view.label.setText(fire.out ? `${fire.name} out` : fire.name);
+      view.label.setPosition(screen.x, screen.y - 28);
+      view.token.setDepth(screen.y + 3);
+      view.label.setDepth(screen.y + 3.5);
     }
   }
 
@@ -280,6 +321,12 @@ export class IsometricScene extends Phaser.Scene {
       this.selectionGraphics.lineStyle(2, 0xe07a3d, 1);
       this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 28);
     }
+    if (selection.kind === 'fire') {
+      const view = this.fireSprites.get(selection.id);
+      if (!view) return;
+      this.selectionGraphics.lineStyle(2, 0xf26b1d, 1);
+      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 18);
+    }
   }
 
   private hitTest(worldX: number, worldY: number): SceneHit | null {
@@ -292,6 +339,7 @@ export class IsometricScene extends Phaser.Scene {
         best = { kind, id };
       }
     };
+    for (const [id, view] of this.fireSprites) consider('fire', id, view, 24);
     for (const [id, view] of this.objectSprites) consider('object', id, view, 22);
     for (const [id, view] of this.vehicleSprites) consider('vehicle', id, view, 36);
     for (const [id, view] of this.sprites) consider('responder', id, view, 22);

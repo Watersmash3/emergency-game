@@ -1,8 +1,13 @@
 import { workerInboundSchema, workerOutboundSchema } from '@emergency/protocol';
 import { FIXED_DT_MS } from '@emergency/protocol';
-import { createSimulation, type Simulation } from '@emergency/simulation';
+import { createSimulation, restoreSimulation, type Simulation } from '@emergency/simulation';
+
+import { shouldAutosave } from './autosavePolicy.ts';
+
+const AUTOSAVE_INTERVAL = 100;
 
 let simulation: Simulation | null = null;
+let sessionStarted = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let lastFrame = 0;
 
@@ -25,7 +30,14 @@ function loop(): void {
   const now = performance.now();
   const elapsed = now - lastFrame;
   lastFrame = now;
-  if (simulation.step(elapsed) > 0) publishSnapshot();
+  const before = simulation.currentTick();
+  if (simulation.step(elapsed) > 0) {
+    const after = simulation.currentTick();
+    if (shouldAutosave(sessionStarted, before, after, AUTOSAVE_INTERVAL)) {
+      post({ type: 'autosave', document: simulation.exportSave() });
+    }
+    publishSnapshot();
+  }
 }
 
 self.onmessage = (event: MessageEvent<unknown>) => {
@@ -37,6 +49,7 @@ self.onmessage = (event: MessageEvent<unknown>) => {
 
   if (parsed.data.type === 'init') {
     simulation = createSimulation(parsed.data.scenario);
+    sessionStarted = false;
     lastFrame = performance.now();
     if (timer !== null) clearInterval(timer);
     timer = setInterval(loop, FIXED_DT_MS);
@@ -45,10 +58,42 @@ self.onmessage = (event: MessageEvent<unknown>) => {
     return;
   }
 
-  if (!simulation) {
+  if (parsed.data.type === 'export') {
+    if (!simulation) {
+      post({ type: 'error', message: 'Simulation is not ready.' });
+      return;
+    }
+    post({
+      type: 'save-document',
+      requestId: parsed.data.requestId,
+      document: simulation.exportSave(),
+    });
+    return;
+  }
+
+  if (parsed.data.type === 'restore') {
+    const restored = restoreSimulation(parsed.data.document);
+    if (!restored.ok) {
+      post({
+        type: 'restore-result',
+        requestId: parsed.data.requestId,
+        ok: false,
+        message: restored.message,
+      });
+      return;
+    }
+    simulation = restored.simulation;
+    sessionStarted = true;
+    lastFrame = performance.now();
+    post({ type: 'restore-result', requestId: parsed.data.requestId, ok: true });
+    publishSnapshot();
+    return;
+  }
+
+  if (!simulation || parsed.data.type !== 'command') {
     post({
       type: 'command-result',
-      commandId: parsed.data.commandId,
+      commandId: parsed.data.type === 'command' ? parsed.data.commandId : 'command',
       ok: false,
       reason: 'Simulation is not ready',
     });
@@ -56,6 +101,7 @@ self.onmessage = (event: MessageEvent<unknown>) => {
   }
 
   const result = simulation.apply(parsed.data.command);
+  if (result.ok) sessionStarted = true;
   post({
     type: 'command-result',
     commandId: parsed.data.commandId,

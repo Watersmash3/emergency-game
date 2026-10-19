@@ -3,6 +3,7 @@ import type { TeamDefinition } from '@emergency/protocol';
 import type { EquipmentDefinitionRecord, EquipmentInstance } from '../components/equipment.ts';
 import type { Rng } from '../core/rng.ts';
 import type { Entity } from '../entities/Entity.ts';
+import type { IncidentRecord, ObjectiveRecord } from '../components/incident.ts';
 import type { RoadNode } from '../navigation/road.ts';
 import type { Task } from '../tasks/types.ts';
 
@@ -24,6 +25,8 @@ export interface World {
   roadEdges: { from: string; to: string }[];
   reservedNodes: Map<string, string>;
   reservedExits: Map<string, string>;
+  incidents: Map<string, IncidentRecord>;
+  objectives: Map<string, ObjectiveRecord>;
   tick: number;
   paused: boolean;
   accumulatorMs: number;

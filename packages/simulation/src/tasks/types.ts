@@ -70,6 +70,15 @@ export interface RespondTask extends ActivityTask {
   disembark: boolean;
 }
 
+export interface SuppressFireTask extends ActivityTask {
+  kind: 'suppress-fire';
+  equipmentId?: string;
+}
+
+export interface SuppressIncidentTask extends ActivityTask {
+  kind: 'suppress-incident';
+}
+
 export type ParentTask =
   | RetrieveEquipmentTask
   | ForceDoorTask
@@ -77,7 +86,9 @@ export type ParentTask =
   | BoardVehicleTask
   | ExitVehicleTask
   | DriveVehicleTask
-  | RespondTask;
+  | RespondTask
+  | SuppressFireTask
+  | SuppressIncidentTask;
 
 export type Task = MoveTask | ParentTask | InteractTask;
 
@@ -89,6 +100,8 @@ export function isParentTask(task: Task): task is ParentTask {
     task.kind === 'board-vehicle' ||
     task.kind === 'exit-vehicle' ||
     task.kind === 'drive-vehicle' ||
-    task.kind === 'respond'
+    task.kind === 'respond' ||
+    task.kind === 'suppress-fire' ||
+    task.kind === 'suppress-incident'
   );
 }

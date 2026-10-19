@@ -20,5 +20,10 @@ describe('training yard', () => {
     expect(trainingYard.vehicles).toHaveLength(1);
     expect(trainingYard.vehicles[0]?.definitionId).toBe('fire_engine_standard');
     expect(trainingYard.roadNodes.map((node) => node.id)).toContain('n-staging');
+    expect(trainingYard.fires.map((fire) => fire.position)).toEqual([{ x: 10, y: 14 }]);
+    expect(trainingYard.incidents.map((incident) => incident.id)).toEqual(['incident-training']);
+    expect(
+      trainingYard.equipmentCatalog.find((item) => item.id === 'extinguisher')?.capabilities,
+    ).toContain('suppress');
   });
 });

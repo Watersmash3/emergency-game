@@ -60,7 +60,13 @@ export const trainingYard: Scenario = scenarioSchema.parse({
   equipmentCatalog: [
     { id: 'halligan', name: 'Halligan tool', capabilities: ['force-entry'] },
     { id: 'medical-bag', name: 'Medical bag', capabilities: ['medical'] },
-    { id: 'extinguisher', name: 'Fire extinguisher', capabilities: ['extinguish'] },
+    {
+      id: 'extinguisher',
+      name: 'Fire extinguisher',
+      capabilities: ['extinguish', 'suppress'],
+      agent: 80,
+      suppression: 0.02,
+    },
   ],
   equipment: [
     { id: 'item-halligan', definitionId: 'halligan', locationId: 'locker-staging' },
@@ -106,6 +112,26 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       definitionId: 'fire_engine_standard',
       nodeId: 'n-north',
       heading: 0,
+    },
+  ],
+  fires: [
+    {
+      id: 'fire-training',
+      name: 'Training fire',
+      position: { x: 10, y: 14 },
+      intensity: 0.45,
+      maxIntensity: 1,
+      fuel: 600,
+      growth: 0.001,
+      fuelUse: 0.02,
+      range: 2,
+    },
+  ],
+  incidents: [
+    {
+      id: 'incident-training',
+      name: 'Training fire',
+      objectives: [{ id: 'objective-suppress', kind: 'suppress-fire', targetId: 'fire-training' }],
     },
   ],
   team: {

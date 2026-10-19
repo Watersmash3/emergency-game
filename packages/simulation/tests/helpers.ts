@@ -19,6 +19,8 @@ export function makeScenario(
     roadEdges?: Scenario['roadEdges'];
     vehicleCatalog?: Scenario['vehicleCatalog'];
     vehicles?: Scenario['vehicles'];
+    fires?: Scenario['fires'];
+    incidents?: Scenario['incidents'];
   } = {},
 ): Scenario {
   const responders = input.responders ?? [
@@ -48,6 +50,8 @@ export function makeScenario(
     ...(input.roadEdges ? { roadEdges: input.roadEdges } : {}),
     ...(input.vehicleCatalog ? { vehicleCatalog: input.vehicleCatalog } : {}),
     ...(input.vehicles ? { vehicles: input.vehicles } : {}),
+    ...(input.fires ? { fires: input.fires } : {}),
+    ...(input.incidents ? { incidents: input.incidents } : {}),
   });
 }
 

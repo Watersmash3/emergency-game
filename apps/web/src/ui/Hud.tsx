@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 import { commandFor } from '../game/input/sceneInput.ts';
 import { sendCommand, useGameStore, type Selection } from '../state/gameStore.ts';
+import { Saves } from './Saves.tsx';
 
 export function Hud() {
   const snapshot = useGameStore((state) => state.snapshot);
@@ -13,6 +14,7 @@ export function Hud() {
   const selectTeam = useGameStore((state) => state.selectTeam);
   const selectObject = useGameStore((state) => state.selectObject);
   const selectVehicle = useGameStore((state) => state.selectVehicle);
+  const selectFire = useGameStore((state) => state.selectFire);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -46,6 +48,10 @@ export function Hud() {
   const selectedVehicle =
     selection?.kind === 'vehicle'
       ? snapshot.vehicles.find((vehicle) => vehicle.id === selection.id)
+      : undefined;
+  const selectedFire =
+    selection?.kind === 'fire'
+      ? snapshot.fires.find((fire) => fire.id === selection.id)
       : undefined;
   const apparatus = snapshot.vehicles.find((vehicle) => vehicle.id === snapshot.team.apparatusId);
   const staging = snapshot.roads.find((road) => road.kind === 'staging');
@@ -85,6 +91,7 @@ export function Hud() {
       </header>
 
       <aside className="panel">
+        <Saves />
         <button
           type="button"
           className="team-select"
@@ -105,7 +112,12 @@ export function Hud() {
                   onClick={() => selectResponder(memberId)}
                 >
                   <span>{entity?.name ?? memberId}</span>
-                  <small>{statusFor(memberTasks(snapshot.tasks, memberId))}</small>
+                  <small>
+                    {statusFor(memberTasks(snapshot.tasks, memberId))}
+                    {entity
+                      ? ` · ${entity.position.x.toFixed(1)}, ${entity.position.y.toFixed(1)}`
+                      : ''}
+                  </small>
                 </button>
               </li>
             );
@@ -122,7 +134,9 @@ export function Hud() {
               >
                 <span>{vehicle.name}</span>
                 <small>
-                  {vehicle.status} · {vehicle.occupants.length}/{vehicle.capacity} seats ·{' '}
+                  {vehicle.status} · {vehicle.position.x.toFixed(1)},{' '}
+                  {vehicle.position.y.toFixed(1)} · {vehicle.occupants.length}/{vehicle.capacity}{' '}
+                  seats ·{' '}
                   {vehicleStatus(snapshot.tasks.filter((task) => task.assigneeId === vehicle.id))}
                 </small>
               </button>
@@ -158,12 +172,53 @@ export function Hud() {
           })}
         </ul>
 
+        <ul className="roster">
+          {snapshot.incidents.map((incident) => {
+            const fireId = incident.objectives[0]?.targetId;
+            const fire = snapshot.fires.find((candidate) => candidate.id === fireId);
+            const order = snapshot.tasks.find(
+              (task) =>
+                task.kind === 'suppress-incident' &&
+                task.targetId === incident.id &&
+                (task.state === 'running' || task.state === 'suspended'),
+            );
+            return (
+              <li key={incident.id}>
+                <button
+                  type="button"
+                  aria-pressed={selection?.kind === 'fire' && selection.id === fireId}
+                  onClick={() => {
+                    if (fireId) selectFire(fireId);
+                  }}
+                >
+                  <span>{incident.name}</span>
+                  <small>
+                    {incident.state}
+                    {fire
+                      ? ` · ${Math.round((fire.intensity / fire.maxIntensity) * 100)}% · fuel ${fire.fuel.toFixed(0)}`
+                      : ''}
+                  </small>
+                </button>
+                {order ? (
+                  <button
+                    type="button"
+                    className="action"
+                    onClick={() => sendCommand({ type: 'cancel-task', taskId: order.id })}
+                  >
+                    Cancel suppression
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+
         <div className="detail">
           {selection?.kind === 'team' ? (
             <>
               <p>
                 Team selected. Right-click the map to move {snapshot.team.name}, the engine to
-                board, or the locker to retrieve.
+                board, the locker to retrieve, or the fire to suppress the incident.
               </p>
               {apparatus ? (
                 <p>
@@ -215,6 +270,23 @@ export function Hud() {
                   Disembark
                 </button>
               ) : null}
+              {snapshot.incidents
+                .filter((incident) => incident.state === 'active')
+                .map((incident) => (
+                  <button
+                    key={incident.id}
+                    type="button"
+                    onClick={() =>
+                      sendCommand({
+                        type: 'suppress-incident',
+                        teamId: snapshot.team.id,
+                        incidentId: incident.id,
+                      })
+                    }
+                  >
+                    Suppress {incident.name}
+                  </button>
+                ))}
             </>
           ) : selectedResponder ? (
             <>
@@ -227,7 +299,7 @@ export function Hud() {
               <p>
                 Carrying{' '}
                 {selectedResponder.inventory.length > 0
-                  ? selectedResponder.inventory.map((item) => item.name).join(', ')
+                  ? selectedResponder.inventory.map((item) => carriedLabel(item)).join(', ')
                   : 'nothing'}{' '}
                 ({selectedResponder.inventory.length}/{snapshot.inventoryCapacity})
               </p>
@@ -282,6 +354,23 @@ export function Hud() {
                       </button>
                     ))
                 : null}
+              {snapshot.fires
+                .filter((fire) => !fire.out)
+                .map((fire) => (
+                  <button
+                    key={fire.id}
+                    type="button"
+                    onClick={() =>
+                      sendCommand({
+                        type: 'suppress-fire',
+                        responderId: selectedResponder.id,
+                        fireId: fire.id,
+                      })
+                    }
+                  >
+                    Suppress {fire.name}
+                  </button>
+                ))}
               {openTask ? (
                 <button
                   type="button"
@@ -381,12 +470,27 @@ export function Hud() {
                 </button>
               ) : null}
             </>
+          ) : selectedFire ? (
+            <>
+              <h2>{selectedFire.name}</h2>
+              <p>
+                {selectedFire.out
+                  ? 'Out'
+                  : `${Math.round((selectedFire.intensity / selectedFire.maxIntensity) * 100)}% intensity`}
+                {' · '}fuel {selectedFire.fuel.toFixed(1)}
+              </p>
+              <p>
+                {incidentFor(snapshot, selectedFire.id)?.state ?? 'No incident'} ·{' '}
+                {incidentFor(snapshot, selectedFire.id)?.name ?? 'unassigned'}
+              </p>
+              <p>Select a responder or the team, then suppress this fire.</p>
+            </>
           ) : (
             <p>Select a responder, or select the team.</p>
           )}
           <p className="help">
-            Left-click selects. Right-click moves, boards, or interacts. Space pauses. Wheel zooms.
-            Middle mouse pans.
+            Left-click selects. Right-click moves, boards, interacts, or suppresses. Space pauses.
+            Wheel zooms. Middle mouse pans.
           </p>
         </div>
 
@@ -408,7 +512,10 @@ function memberTasks(tasks: TaskSnapshot[], memberId: string): TaskSnapshot[] {
     (task) =>
       task.assigneeId === memberId &&
       task.kind !== 'interact' &&
-      (task.kind === 'board-vehicle' || task.kind === 'exit-vehicle' || !task.parentId),
+      (task.kind === 'board-vehicle' ||
+        task.kind === 'exit-vehicle' ||
+        task.kind === 'suppress-fire' ||
+        !task.parentId),
   );
 }
 
@@ -447,6 +554,16 @@ function actionLabel(object: ObjectSnapshot, selection: Selection): string {
   return item ? `Retrieve ${item.name}` : 'Retrieve';
 }
 
+function incidentFor(snapshot: SimulationSnapshot, fireId: string) {
+  return snapshot.incidents.find((incident) =>
+    incident.objectives.some((objective) => objective.targetId === fireId),
+  );
+}
+
+function carriedLabel(item: { name: string; agent?: number }): string {
+  return item.agent === undefined ? item.name : `${item.name} (${item.agent})`;
+}
+
 function describeTask(task: TaskSnapshot): string {
   const state = task.state === 'suspended' ? 'suspended by override' : task.state;
   if (task.kind === 'move') {
@@ -468,7 +585,11 @@ function describeTask(task: TaskSnapshot): string {
                 ? 'Drive'
                 : task.kind === 'respond'
                   ? 'Respond'
-                  : 'Interact';
+                  : task.kind === 'suppress-fire'
+                    ? 'Suppress'
+                    : task.kind === 'suppress-incident'
+                      ? 'Suppress incident'
+                      : 'Interact';
   const progress = task.durationTicks > 0 ? ` ${task.progressTicks}/${task.durationTicks}` : '';
   const reason = task.state === 'failed' && task.failureReason ? `: ${task.failureReason}` : '';
   return `${label} ${state} · ${task.step}${progress}${reason}`;

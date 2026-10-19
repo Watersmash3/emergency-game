@@ -2,7 +2,7 @@
 
 A single-player, browser-based tactical emergency response game. The player commands a team or an individual responder. The simulation runs locally in a web worker and does not depend on the renderer.
 
-This repository is a playable training yard: four responders, an engine, team movement, individual overrides, equipment retrieval, and a locked door that can be forced.
+This repository is a playable training yard: four responders, an engine, team movement, individual overrides, equipment retrieval, a locked door that can be forced, and a fire the crew can suppress.
 
 ## Prerequisites
 
@@ -32,19 +32,22 @@ pnpm build
 
 ## Controls
 
-| Input             | Action                                         |
-| ----------------- | ---------------------------------------------- |
-| Left-click        | Select a responder, object, or vehicle         |
-| Team header       | Select the whole team                          |
-| Engine row        | Select Engine 1                                |
-| Right-click       | Move, board or exit the engine, or interact    |
-| Object action     | Retrieve, force a door, or operate a panel     |
-| Board / Respond   | Load the crew, drive to staging, and disembark |
-| Space or Pause    | Pause or resume the simulation                 |
-| Mouse wheel       | Zoom                                           |
-| Middle mouse drag | Pan                                            |
+| Input             | Action                                                |
+| ----------------- | ----------------------------------------------------- |
+| Left-click        | Select a responder, object, vehicle, or fire          |
+| Team header       | Select the whole team                                 |
+| Engine row        | Select Engine 1                                       |
+| Incident row      | Select the training fire and show its status          |
+| Right-click       | Move, board or exit, interact, or suppress            |
+| Object action     | Retrieve, force a door, or operate a panel            |
+| Board / Respond   | Load the crew, drive to staging, and disembark        |
+| Suppress          | One firefighter, or the whole crew, attacks the fire  |
+| Save / Load       | Store the incident locally and resume it after reload |
+| Space or Pause    | Pause or resume the simulation                        |
+| Mouse wheel       | Zoom                                                  |
+| Middle mouse drag | Pan                                                   |
 
-Orders can be issued while paused. Units do not move, and boarding, driving, and other interactions do not progress, until the simulation resumes. A responder carries at most two items. Forcing the training door fetches a Halligan tool from the staging locker when the responder does not already have one. Engine 1 carries its own copies of that equipment and can be used only while it is parked.
+Orders can be issued while paused. Units do not move, and boarding, driving, fire growth, and suppression do not progress, until the simulation resumes. A responder carries at most two items. Forcing the training door fetches a Halligan tool from the staging locker when the responder does not already have one. Engine 1 carries its own copies of that equipment and can be used only while it is parked. Suppressing the training fire uses an extinguisher from the locker or from the parked engine. The carried count on an extinguisher is the remaining suppression agent. Save stores the whole simulation, including a task that is already in progress. Load replaces the running incident only after the file has been validated. Autosave keeps the latest automatic copy and one previous recovery copy, and it does not overwrite a named save.
 
 ## Compatibility
 

@@ -32,6 +32,7 @@ import type {
   RetrieveEquipmentTask,
   Task,
 } from './types.ts';
+import { advanceSuppressionTask } from './suppression.ts';
 import { advanceVehicleTask } from './vehicles.ts';
 import { approachTiles, blocksPedestrian, canTakeFrom } from './vehicleRules.ts';
 
@@ -128,6 +129,10 @@ export function stepTasks(world: World): void {
         advanceVehicleTask(world, task);
         break;
       case 'drive-vehicle':
+        break;
+      case 'suppress-fire':
+      case 'suppress-incident':
+        advanceSuppressionTask(world, task);
         break;
       default: {
         const unreachable: never = task;

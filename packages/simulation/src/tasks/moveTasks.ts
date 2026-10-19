@@ -8,6 +8,7 @@ import { cancelTask, clearRoute, isOpen, nextIdentifier, overrideWith } from './
 import { CommandRejection, type CommandResult } from './results.ts';
 import { transition } from './transitions.ts';
 import type { MoveTask } from './types.ts';
+import { applySuppressionCommand } from './suppression.ts';
 import { applyVehicleCommand } from './vehicles.ts';
 import { blocksPedestrian } from './vehicleRules.ts';
 
@@ -41,6 +42,9 @@ export function applyCommand(world: World, command: Command): CommandResult {
     case 'drive-vehicle':
     case 'respond-to':
       return applyVehicleCommand(world, command);
+    case 'suppress-fire':
+    case 'suppress-incident':
+      return applySuppressionCommand(world, command);
     default: {
       const unreachable: never = command;
       return unreachable;

@@ -94,6 +94,22 @@ export const taskSnapshotSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     ...taskCommonSchema,
+    kind: z.literal('suppress-fire'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
+    kind: z.literal('suppress-incident'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
     kind: z.literal('interact'),
     targetId: z.string().min(1),
     action: z.enum(['take', 'force', 'operate', 'board', 'exit']),
@@ -110,6 +126,7 @@ export const carriedEquipmentSchema = z.object({
   definitionId: z.string().min(1),
   name: z.string().min(1),
   capabilities: z.array(z.string().min(1)),
+  agent: z.number().nonnegative().optional(),
 });
 
 export type CarriedEquipment = z.infer<typeof carriedEquipmentSchema>;
@@ -170,6 +187,34 @@ export const vehicleSnapshotSchema = z.object({
 
 export type VehicleSnapshot = z.infer<typeof vehicleSnapshotSchema>;
 
+export const fireSnapshotSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  position: tileSchema,
+  intensity: z.number().nonnegative(),
+  maxIntensity: z.number().positive(),
+  fuel: z.number().nonnegative(),
+  out: z.boolean(),
+});
+
+export type FireSnapshot = z.infer<typeof fireSnapshotSchema>;
+
+export const incidentSnapshotSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  state: z.enum(['active', 'resolved']),
+  objectives: z.array(
+    z.object({
+      id: z.string().min(1),
+      kind: z.literal('suppress-fire'),
+      targetId: z.string().min(1),
+      state: z.enum(['open', 'satisfied']),
+    }),
+  ),
+});
+
+export type IncidentSnapshot = z.infer<typeof incidentSnapshotSchema>;
+
 export const roadSnapshotSchema = z.object({
   id: z.string().min(1),
   position: tileSchema,
@@ -194,6 +239,8 @@ export const simulationSnapshotSchema = z.object({
   roadEdges: z.array(z.object({ from: z.string().min(1), to: z.string().min(1) })),
   inventoryCapacity: z.number().int().positive(),
   tasks: z.array(taskSnapshotSchema),
+  fires: z.array(fireSnapshotSchema),
+  incidents: z.array(incidentSnapshotSchema),
 });
 
 export type SimulationSnapshot = z.infer<typeof simulationSnapshotSchema>;

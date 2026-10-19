@@ -18,8 +18,11 @@ An entity has a stable string id and optional components:
 - `teamMembership`: team id.
 - `interactable`: object type, state, required capability, and the tiles a responder must stand on.
 - `vehicle`: definition, heading, footprint, seats, occupants, driver, road node, and status.
+- `fire`: name, intensity, maximum intensity, fuel, growth per tick, fuel use per tick, and suppression range.
 
-The training yard's team is a record of member ids and an optional apparatus id, not an entity. Occupancy is stored on the vehicle. It is not inferred from team membership. Obstacles are blocked cells on the navigation grid. A locked door is also a blocked cell until a force-door task opens it. Equipment instances live beside the entities: each one is in a locker, stored on a stationary vehicle, or carried by one responder, and a task may reserve it.
+The training yard's team is a record of member ids and an optional apparatus id, not an entity. Occupancy is stored on the vehicle. It is not inferred from team membership. Incidents and objectives are also records. An incident stays active until every objective is satisfied. The training fire's objective is satisfied when that fire's intensity reaches zero.
+
+Obstacles are blocked cells on the navigation grid. A locked door is also a blocked cell until a force-door task opens it. A fire occupies a walkable tile and does not block movement. Equipment instances live beside the entities: each one is in a locker, stored on a stationary vehicle, or carried by one responder, and a task may reserve it. A suppress-capable item also carries a remaining agent count and a catalog suppression rate.
 
 ## Navigation
 
@@ -37,4 +40,16 @@ The worker posts a snapshot after every accepted or rejected command, and after 
 
 ## Snapshot
 
-`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, vehicles, road nodes and edges, inventory capacity, and tasks. Entity paths are included so the renderer can draw them without pathfinding. An aboard responder's position is derived from the vehicle. The object survives `JSON.parse(JSON.stringify(snapshot))`. IndexedDB is not wired up; this object is the boundary it will use.
+`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, vehicles, road nodes and edges, fires, incidents, inventory capacity, and tasks. Entity paths are included so the renderer can draw them without pathfinding. An aboard responder's position is derived from the vehicle. Fire intensity, fuel, and incident state are included so the HUD can show them without reading the simulation internals. The object survives `JSON.parse(JSON.stringify(snapshot))`.
+
+## Saves
+
+The render snapshot is not a save file. `exportSave()` writes schema version 1, a portable document with entities, components, equipment, reservations, seats, road reservations, incidents, task progress, the tick, the pause flag, and the RNG state. It is taken between ticks, so a partial frame is not stored. `restoreSimulation()` parses that document, rebuilds the maps the simulation uses, and checks occupancy, ownership, and reservations. It does not run the original commands again. A failed restore returns a message and leaves the caller's simulation in place.
+
+The browser keeps those documents in IndexedDB. Manual saves are listed ahead of the automatic slots. Autosave starts after a command or a load, then every 100 completed ticks writes an `autosave` record and keeps the previous one as `Previous recovery`. Reloading the page does not replace that recovery with the opening layout. A storage or quota failure is reported and does not replace the running simulation. A loaded snapshot recenters the view and places responders at the saved coordinates immediately.
+
+## Fire
+
+`stepFire` runs after vehicle movement and before tasks. A burning fire with fuel increases intensity by its growth, capped at the maximum, and decreases fuel by its fuel use. Fuel at zero stops growth. It does not put the fire out. Suppression is the only way intensity reaches zero. There is no random spread and no second fire.
+
+Pause returns before any system runs, so a paused tick does not grow a fire or apply suppression.

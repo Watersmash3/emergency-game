@@ -176,7 +176,9 @@ function boardTeam(world: World, teamId: string, vehicleId: string): CommandResu
     ...planBoard(world, memberId, vehicleId),
   }));
   const ready = plans.filter((plan) => plan.ok);
-  const problems = plans.filter((plan) => !plan.ok && plan.reason !== CommandRejection.AlreadyAboard);
+  const problems = plans.filter(
+    (plan) => !plan.ok && plan.reason !== CommandRejection.AlreadyAboard,
+  );
   if (ready.length === 0) {
     if (problems.length === 0) return { ok: true };
     const first = problems[0];

@@ -31,6 +31,12 @@ export const CommandRejection = {
   Interrupted: 'Interrupted boarding',
   TransportCancelled: 'Transport was cancelled',
   ParkingReserved: 'Destination is reserved',
+  UnknownFire: 'Unknown fire',
+  UnknownIncident: 'Unknown incident',
+  FireOut: 'Fire is out',
+  NoSuppressant: 'No suppression equipment',
+  AgentSpent: 'Suppression agent exhausted',
+  IncidentResolved: 'Incident is already resolved',
 } as const;
 
 export type CommandResult = { ok: true } | { ok: false; reason: string };

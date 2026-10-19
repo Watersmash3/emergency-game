@@ -161,10 +161,25 @@ h1 {
   font-size: 13px;
 }
 
-.detail {
+.detail,
+.saves {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.saves input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid rgb(226 182 87 / 45%);
+  border-radius: 6px;
+  background: #17211c;
+  color: #f4f7f5;
+}
+
+.saves .roster button {
+  width: auto;
 }
 
 .result {

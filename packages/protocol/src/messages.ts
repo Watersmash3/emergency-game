@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { commandSchema } from './commands.ts';
+import { saveDocumentSchema } from './save.ts';
 import { scenarioSchema } from './scenario.ts';
 import { simulationSnapshotSchema } from './snapshot.ts';
 
@@ -13,6 +14,15 @@ export const workerInboundSchema = z.discriminatedUnion('type', [
     type: z.literal('command'),
     commandId: z.string().min(1),
     command: commandSchema,
+  }),
+  z.object({
+    type: z.literal('export'),
+    requestId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('restore'),
+    requestId: z.string().min(1),
+    document: z.unknown(),
   }),
 ]);
 
@@ -35,6 +45,21 @@ export const workerOutboundSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('error'),
     message: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('save-document'),
+    requestId: z.string().min(1),
+    document: saveDocumentSchema,
+  }),
+  z.object({
+    type: z.literal('autosave'),
+    document: saveDocumentSchema,
+  }),
+  z.object({
+    type: z.literal('restore-result'),
+    requestId: z.string().min(1),
+    ok: z.boolean(),
+    message: z.string().min(1).optional(),
   }),
 ]);
 

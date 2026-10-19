@@ -1,6 +1,6 @@
 # Tasks and command
 
-Task kinds are `move` (move-to), `interact`, `retrieve-equipment`, `force-door`, `operate-panel`, `board-vehicle`, `exit-vehicle`, `drive-vehicle`, and `respond`. Sources are `team` and `individual`. States are `pending`, `ready`, `running`, `suspended`, `completed`, `failed`, and `cancelled`. A new reachable task passes through `pending`, `ready`, and `running` before the command returns. Terminal states do not change.
+Task kinds are `move` (move-to), `interact`, `retrieve-equipment`, `force-door`, `operate-panel`, `board-vehicle`, `exit-vehicle`, `drive-vehicle`, `respond`, `suppress-fire`, and `suppress-incident`. Sources are `team` and `individual`. States are `pending`, `ready`, `running`, `suspended`, `completed`, `failed`, and `cancelled`. A new reachable task passes through `pending`, `ready`, and `running` before the command returns. Terminal states do not change.
 
 Compound tasks keep the script in the simulation. `force-door` checks the door, retrieves a Halligan tool when the responder does not have one, moves to an interaction tile, then spends interaction ticks. `retrieve-equipment` and `operate-panel` move to an interaction tile and then spend interaction ticks. `board-vehicle` reserves a seat, walks to the vehicle, and spends interaction ticks before the responder becomes an occupant. `exit-vehicle` requires a parked vehicle, reserves an adjacent tile, and spends interaction ticks before the responder is placed there. `respond` boards eligible crew, drives only after the designated driver is aboard, then disembarks when requested. Those ticks advance only inside `tick()`.
 
@@ -28,7 +28,17 @@ Equipment instances are exclusive. A task reserves an instance when it starts an
 
 ## Pause
 
-Pause stops ticks. It does not stop commands. A move, boarding interaction, or vehicle order issued while paused becomes a running task immediately and starts advancing on resume. Vehicle position and boarding progress stay where they were.
+Pause stops ticks. It does not stop commands. A move, boarding interaction, vehicle order, or suppression order issued while paused becomes a running task immediately and starts advancing on resume. Vehicle position, boarding progress, fire intensity, fuel, and suppression progress stay where they were.
+
+A save copies those tasks as they are, including a suspended override and any seat, exit, node, or equipment reservation. Loading that save continues the same tasks. It does not reserve the equipment again or restart the interaction.
+
+## Fire suppression
+
+`suppress-fire` is an individual order against one fire. The responder must be on foot, the fire must still be burning, and a reachable tile must be within the fire's range. The task uses an item whose catalog capability is `suppress`, whose suppression rate is above zero, and whose remaining agent is above zero. If the responder is already carrying one, they walk into range and apply it. Otherwise the task reserves the nearest stored item, in a locker or on a parked vehicle, and retrieves it first.
+
+Each suppression tick consumes one agent and reduces intensity by the catalog rate. Growth has already been applied earlier in the same tick. The task completes when intensity reaches zero, including the tick that spends the last agent to finish the fire. If agent reaches zero while intensity is still above zero, the task fails and the incident stays active. Cancelling or failing the task releases the reservation.
+
+`suppress-incident` is a team order. It creates one parent task for the incident and one `suppress-fire` child for each member who can reach the fire and take a distinct item. Members who are aboard, boarding, exiting, or already on an individual order are left alone. An individual move suspends that member's child and leaves the parent running. If the suspended member had reserved an item they do not yet carry, the parent releases that reservation and assigns another free member. The parent completes when every objective on the incident is satisfied, and that completion cancels any suspended children. The individual move is not one of those children, so the override remains.
 
 ## Commands added for vehicles
 
@@ -36,7 +46,9 @@ Pause stops ticks. It does not stop commands. A move, boarding interaction, or v
 - `board-team` and `disembark-team` for the crew
 - `drive-vehicle` to a road node, which requires the designated driver aboard
 - `respond-to` boards eligible members, drives, and optionally disembarks
+- `suppress-fire` for one responder and one fire
+- `suppress-incident` for the crew and one incident
 
 ## What this model is not yet
 
-There is no goal, plan, or atomic-action library. Fire suppression and other incident actions should be new task kinds that reuse the same states, group ids, suspension, and resource checks. The vehicle does not steer, accelerate, or change lanes. It travels node to node. The simulation does not replace a missing driver automatically.
+There is no goal, plan, or atomic-action library. The vehicle does not steer, accelerate, or change lanes. It travels node to node. The simulation does not replace a missing driver automatically. Fire does not spread to neighboring tiles, and suppression does not use pumps, hoses, or hydrants.

@@ -57,6 +57,8 @@ export const equipmentDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   capabilities: z.array(z.string().min(1)),
+  agent: z.number().nonnegative().optional(),
+  suppression: z.number().nonnegative().optional(),
 });
 
 export type EquipmentDefinition = z.infer<typeof equipmentDefinitionSchema>;
@@ -107,6 +109,36 @@ export const equipmentPlacementSchema = z.object({
 
 export type EquipmentPlacement = z.infer<typeof equipmentPlacementSchema>;
 
+export const fireDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  position: tileSchema,
+  intensity: z.number().positive(),
+  maxIntensity: z.number().positive(),
+  fuel: z.number().nonnegative(),
+  growth: z.number().nonnegative(),
+  fuelUse: z.number().nonnegative(),
+  range: z.number().int().nonnegative(),
+});
+
+export type FireDefinition = z.infer<typeof fireDefinitionSchema>;
+
+export const objectiveDefinitionSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal('suppress-fire'),
+  targetId: z.string().min(1),
+});
+
+export type ObjectiveDefinition = z.infer<typeof objectiveDefinitionSchema>;
+
+export const incidentDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  objectives: z.array(objectiveDefinitionSchema).min(1),
+});
+
+export type IncidentDefinition = z.infer<typeof incidentDefinitionSchema>;
+
 export const scenarioSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -124,6 +156,8 @@ export const scenarioSchema = z.object({
   roadEdges: z.array(roadEdgeSchema).default([]),
   vehicleCatalog: z.array(vehicleCatalogSchema).default([]),
   vehicles: z.array(vehiclePlacementSchema).default([]),
+  fires: z.array(fireDefinitionSchema).default([]),
+  incidents: z.array(incidentDefinitionSchema).default([]),
 });
 
 export type Scenario = z.infer<typeof scenarioSchema>;

@@ -7,6 +7,7 @@ import { findPath } from '../navigation/aStar.ts';
 import { isWalkable, tileOf } from '../navigation/grid.ts';
 import { CommandRejection } from './results.ts';
 import { transition } from './transitions.ts';
+import { invalidSuppressReason } from './fireRules.ts';
 import { parkVehicle, releaseTransport, vehicleInvalidReason } from './vehicleRules.ts';
 import {
   isParentTask,
@@ -328,6 +329,10 @@ function invalidReason(world: World, task: Task): string | null {
     case 'drive-vehicle':
       return vehicleInvalidReason(world, task);
     case 'respond':
+      return null;
+    case 'suppress-fire':
+      return invalidSuppressReason(world, task, from);
+    case 'suppress-incident':
       return null;
     default: {
       const unreachable: never = task;

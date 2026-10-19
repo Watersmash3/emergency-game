@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { commandSchema, scenarioSchema, workerInboundSchema } from '../src/index.ts';
+import {
+  commandSchema,
+  saveDocumentSchema,
+  saveSchemaMessage,
+  scenarioSchema,
+  workerInboundSchema,
+} from '../src/index.ts';
 
 describe('protocol schemas', () => {
   it('accepts a move command and rejects an unknown command', () => {
@@ -13,6 +19,20 @@ describe('protocol schemas', () => {
     ).toBe(true);
 
     expect(commandSchema.safeParse({ type: 'extinguish' }).success).toBe(false);
+    expect(
+      commandSchema.safeParse({
+        type: 'suppress-fire',
+        responderId: 'ff-hayes',
+        fireId: 'fire-training',
+      }).success,
+    ).toBe(true);
+    expect(
+      commandSchema.safeParse({
+        type: 'suppress-incident',
+        teamId: 'engine-1',
+        incidentId: 'incident-training',
+      }).success,
+    ).toBe(true);
     expect(
       commandSchema.safeParse({
         type: 'force-door',
@@ -53,5 +73,14 @@ describe('protocol schemas', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('rejects a save from another schema version', () => {
+    const result = saveDocumentSchema.safeParse({ schemaVersion: 2 });
+    expect(result.success).toBe(false);
+    expect(saveSchemaMessage({ schemaVersion: 2 })).toBe(
+      'This save uses schema version 2 and cannot be loaded.',
+    );
+    expect(saveSchemaMessage({ schemaVersion: 1 })).toBe('This save is invalid or incomplete.');
   });
 });

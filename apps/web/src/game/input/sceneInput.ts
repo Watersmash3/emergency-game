@@ -5,7 +5,7 @@ import { sendCommand, useGameStore, type Selection } from '../../state/gameStore
 import { screenToTile } from '../rendering/iso.ts';
 
 export interface SceneHit {
-  kind: 'responder' | 'object' | 'vehicle';
+  kind: 'responder' | 'object' | 'vehicle' | 'fire';
   id: string;
 }
 
@@ -32,14 +32,16 @@ export function bindSceneInput(
     const world = scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const hit = hitTest(world.x, world.y);
     if (pointer.button === 2) {
-      if (hit?.kind === 'object') issueInteraction(hit.id);
+      if (hit?.kind === 'fire') issueFire(hit.id);
+      else if (hit?.kind === 'object') issueInteraction(hit.id);
       else if (hit?.kind === 'vehicle') issueVehicle(hit.id);
       else issueMove(screenToTile(world.x, world.y));
       return;
     }
     if (pointer.button !== 0) return;
 
-    if (hit?.kind === 'object') useGameStore.getState().selectObject(hit.id);
+    if (hit?.kind === 'fire') useGameStore.getState().selectFire(hit.id);
+    else if (hit?.kind === 'object') useGameStore.getState().selectObject(hit.id);
     else if (hit?.kind === 'vehicle') useGameStore.getState().selectVehicle(hit.id);
     else if (hit?.kind === 'responder') useGameStore.getState().selectResponder(hit.id);
     else useGameStore.getState().clearSelection();
@@ -82,6 +84,26 @@ function issueVehicle(vehicleId: string): void {
     return;
   }
   useGameStore.getState().selectVehicle(vehicleId);
+}
+
+function issueFire(fireId: string): void {
+  const { selection, snapshot } = useGameStore.getState();
+  if (selection?.kind === 'team' && snapshot) {
+    const incident = snapshot.incidents.find(
+      (candidate) =>
+        candidate.state === 'active' &&
+        candidate.objectives.some((objective) => objective.targetId === fireId),
+    );
+    if (incident) {
+      sendCommand({ type: 'suppress-incident', teamId: selection.id, incidentId: incident.id });
+      return;
+    }
+  }
+  if (selection?.kind === 'responder') {
+    sendCommand({ type: 'suppress-fire', responderId: selection.id, fireId });
+    return;
+  }
+  useGameStore.getState().selectFire(fireId);
 }
 
 function issueInteraction(objectId: string): void {
