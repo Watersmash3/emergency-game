@@ -13,7 +13,9 @@ import {
 import type { EquipmentInstance } from '../components/equipment.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { inBounds, isBlocked, tileCenter, tileKey, tileOf } from '../navigation/grid.ts';
+import { buildAdjacency } from '../navigation/road.ts';
 import { stepMovement } from '../systems/movementSystem.ts';
+import { stepVehicles, syncOccupants } from '../systems/vehicleSystem.ts';
 import { stepTasks } from '../tasks/interactions.ts';
 import { computeInteractionTiles } from '../tasks/lifecycle.ts';
 import { applyCommand, type CommandResult } from '../tasks/moveTasks.ts';
@@ -37,7 +39,9 @@ export class Simulation {
     if (this.world.paused) return;
     this.world.tick += 1;
     stepMovement(this.world);
+    stepVehicles(this.world);
     stepTasks(this.world);
+    syncOccupants(this.world);
   }
 
   /** Catch up by whole fixed steps. Partial time is kept until the next call. */
@@ -142,6 +146,50 @@ function createWorld(scenarioInput: Scenario): World {
     });
   }
 
+  const roadNodes = new Map(
+    scenario.roadNodes.map((node) => [node.id, { ...node.position, id: node.id, kind: node.kind }]),
+  );
+  for (const edge of scenario.roadEdges) {
+    if (!roadNodes.has(edge.from) || !roadNodes.has(edge.to)) {
+      throw new Error(`Road edge ${edge.from}->${edge.to} references an unknown node`);
+    }
+  }
+  const catalogByVehicle = new Map(
+    scenario.vehicleCatalog.map((definition) => [definition.id, definition]),
+  );
+  for (const placement of scenario.vehicles) {
+    if (entities.has(placement.id)) throw new Error(`Duplicate entity id ${placement.id}`);
+    const definition = catalogByVehicle.get(placement.definitionId);
+    if (!definition) throw new Error(`Unknown vehicle definition ${placement.definitionId}`);
+    const node = roadNodes.get(placement.nodeId);
+    if (!node) throw new Error(`Vehicle ${placement.id} has an unknown node`);
+    if (!inBounds(scenario.width, scenario.height, node) || isBlocked(blocked, node)) {
+      throw new Error(`Vehicle ${placement.id} spawns on a blocked tile`);
+    }
+    const center = tileCenter(node);
+    const designatedDriverId = scenario.team.memberIds[0];
+    if (!designatedDriverId) throw new Error(`Vehicle ${placement.id} has no designated driver`);
+    entities.set(placement.id, {
+      id: placement.id,
+      position: { x: center.x, y: center.y },
+      movement: { speed: definition.speed, path: [], destination: null },
+      vehicle: {
+        definitionId: definition.id,
+        name: placement.name,
+        heading: placement.heading,
+        footprint: { width: definition.footprint.width, height: definition.footprint.height },
+        capacity: definition.capacity,
+        occupants: [],
+        driverId: null,
+        designatedDriverId,
+        status: 'idle',
+        nodeId: node.id,
+        destinationNodeId: null,
+        seatReservations: [],
+      },
+    });
+  }
+
   const catalog = new Map(
     scenario.equipmentCatalog.map((definition) => [
       definition.id,
@@ -164,11 +212,12 @@ function createWorld(scenarioInput: Scenario): World {
     if (placement.ownerId && !entities.get(placement.ownerId)?.responder) {
       throw new Error(`Equipment ${placement.id} has an unknown owner`);
     }
-    if (
-      placement.locationId &&
-      entities.get(placement.locationId)?.interactable?.objectType !== 'locker'
-    ) {
-      throw new Error(`Equipment ${placement.id} is not stored in a locker`);
+    if (placement.locationId) {
+      const storage = entities.get(placement.locationId);
+      const storedInLocker = storage?.interactable?.objectType === 'locker';
+      if (!storedInLocker && !storage?.vehicle) {
+        throw new Error(`Equipment ${placement.id} is not stored in a locker or vehicle`);
+      }
     }
     equipment.set(placement.id, {
       id: placement.id,
@@ -195,7 +244,13 @@ function createWorld(scenarioInput: Scenario): World {
       id: scenario.team.id,
       name: scenario.team.name,
       memberIds: [...scenario.team.memberIds],
+      ...(scenario.team.apparatusId ? { apparatusId: scenario.team.apparatusId } : {}),
     },
+    roadNodes,
+    adjacency: buildAdjacency(scenario.roadEdges),
+    roadEdges: scenario.roadEdges.map((edge) => ({ from: edge.from, to: edge.to })),
+    reservedNodes: new Map(),
+    reservedExits: new Map(),
     tick: 0,
     paused: false,
     accumulatorMs: 0,
@@ -217,7 +272,7 @@ function snapshotOf(world: World): SimulationSnapshot {
       if (!position || !movement || !responder || !membership) {
         throw new Error(`Entity ${entity.id} is missing a required component`);
       }
-      return {
+      const snapshot = {
         id: entity.id,
         name: responder.name,
         teamId: membership.teamId,
@@ -226,7 +281,9 @@ function snapshotOf(world: World): SimulationSnapshot {
         activeTaskId: activeRoot(world, entity.id)?.id ?? null,
         path: movement.path.map((point) => ({ x: point.x, y: point.y })),
         inventory: inventoryOf(world, entity.id),
+        ...(responder.aboardVehicleId ? { aboardVehicleId: responder.aboardVehicleId } : {}),
       };
+      return snapshot;
     });
 
   const tasks = [...world.tasks.values()]
@@ -259,9 +316,22 @@ function snapshotOf(world: World): SimulationSnapshot {
       id: world.team.id,
       name: world.team.name,
       memberIds: [...world.team.memberIds],
+      ...(world.team.apparatusId ? { apparatusId: world.team.apparatusId } : {}),
     },
     entities,
     objects,
+    vehicles: [...world.entities.values()]
+      .filter((entity) => entity.vehicle && entity.position)
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((entity) => snapshotVehicle(world, entity)),
+    roads: [...world.roadNodes.values()]
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((node) => ({
+        id: node.id,
+        position: { x: node.x, y: node.y },
+        kind: node.kind,
+      })),
+    roadEdges: world.roadEdges.map((edge) => ({ from: edge.from, to: edge.to })),
     inventoryCapacity: world.inventoryCapacity,
     tasks,
   };
@@ -296,23 +366,53 @@ function snapshotObject(world: World, entity: Entity): ObjectSnapshot {
     position: tileOf(position),
     state: interactable.state,
     interactionTiles: interactable.interactionTiles.map((tile) => ({ x: tile.x, y: tile.y })),
-    contents: [...world.equipment.values()]
-      .filter((item) => item.locationId === entity.id && item.ownerId === null)
-      .sort((left, right) => {
-        const order = [...world.catalog.keys()];
-        const leftOrder = order.indexOf(left.definitionId);
-        const rightOrder = order.indexOf(right.definitionId);
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-        return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-      })
-      .map((item) => ({
-        ...describeEquipment(world, item),
-        reserved: item.reservedByTaskId !== null,
-      })),
+    contents: storedContents(world, entity.id),
   };
   if (interactable.requiredCapability)
     snapshot.requiredCapability = interactable.requiredCapability;
   return snapshot;
+}
+
+function snapshotVehicle(world: World, entity: Entity) {
+  const vehicle = entity.vehicle;
+  const position = entity.position;
+  if (!vehicle || !position) throw new Error(`Vehicle ${entity.id} is incomplete`);
+  return {
+    id: entity.id,
+    name: vehicle.name,
+    definitionId: vehicle.definitionId,
+    position: { x: position.x, y: position.y },
+    heading: vehicle.heading,
+    footprint: { width: vehicle.footprint.width, height: vehicle.footprint.height },
+    capacity: vehicle.capacity,
+    occupants: vehicle.occupants.map((occupantId) => ({
+      id: occupantId,
+      name: world.entities.get(occupantId)?.responder?.name ?? occupantId,
+    })),
+    driverId: vehicle.driverId,
+    designatedDriverId: vehicle.designatedDriverId,
+    status: vehicle.status,
+    nodeId: vehicle.nodeId,
+    destinationNodeId: vehicle.destinationNodeId,
+    speed: entity.movement?.speed ?? 0,
+    contents: storedContents(world, entity.id),
+  };
+}
+
+function storedContents(world: World, locationId: string) {
+  return [...world.equipment.values()]
+    .filter((item) => item.locationId === locationId && item.ownerId === null)
+    .sort((left, right) => {
+      const order = [...world.catalog.keys()];
+      const leftOrder = order.indexOf(left.definitionId);
+      const rightOrder = order.indexOf(right.definitionId);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    })
+    .map((item) => ({
+      ...describeEquipment(world, item),
+      reserved: item.reservedByTaskId !== null,
+    }));
 }
 
 function describeEquipment(world: World, item: EquipmentInstance): CarriedEquipment {
@@ -364,7 +464,29 @@ function snapshotTask(world: World, task: Task): TaskSnapshot {
       ...progress,
     };
   }
-  return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
+  if (task.kind === 'force-door' || task.kind === 'operate-panel') {
+    return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
+  }
+  if (task.kind === 'board-vehicle' || task.kind === 'exit-vehicle') {
+    return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
+  }
+  if (task.kind === 'drive-vehicle') {
+    return {
+      ...common,
+      kind: 'drive-vehicle',
+      targetId: task.targetId,
+      destinationNodeId: task.destinationNodeId,
+      ...progress,
+    };
+  }
+  return {
+    ...common,
+    kind: 'respond',
+    targetId: task.targetId,
+    destinationNodeId: task.destinationNodeId,
+    disembark: task.disembark,
+    ...progress,
+  };
 }
 
 function displayedProgress(

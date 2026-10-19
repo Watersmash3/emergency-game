@@ -16,7 +16,9 @@ export class IsometricScene extends Phaser.Scene {
   private unsubscribe?: () => void;
   private readonly sprites = new Map<string, SpriteView>();
   private readonly objectSprites = new Map<string, SpriteView>();
+  private readonly vehicleSprites = new Map<string, SpriteView>();
   private readonly tileImages = new Map<string, Phaser.GameObjects.Image>();
+  private readonly roadTiles = new Set<string>();
   private pathGraphics?: Phaser.GameObjects.Graphics;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private mapReady = false;
@@ -66,10 +68,15 @@ export class IsometricScene extends Phaser.Scene {
     this.refreshBlocked(snapshot);
     this.ensureSprites(snapshot);
     this.ensureObjects(snapshot);
+    this.ensureVehicles(snapshot);
   }
 
   private buildMap(snapshot: SimulationSnapshot): void {
     const blocked = new Set(snapshot.blocked.map((tile) => `${tile.x},${tile.y}`));
+    this.roadTiles.clear();
+    for (const key of roadTileKeys(snapshot)) {
+      if (!blocked.has(key)) this.roadTiles.add(key);
+    }
     let minX = Number.POSITIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
@@ -82,7 +89,7 @@ export class IsometricScene extends Phaser.Scene {
         const image = this.add.image(
           screen.x,
           screen.y,
-          blocked.has(key) ? 'tile-blocked' : 'tile-ground',
+          blocked.has(key) ? 'tile-blocked' : this.roadTiles.has(key) ? 'tile-road' : 'tile-ground',
         );
         image.setOrigin(0.5, 0.5);
         image.setDepth(screen.y);
@@ -121,7 +128,9 @@ export class IsometricScene extends Phaser.Scene {
   private refreshBlocked(snapshot: SimulationSnapshot): void {
     const blocked = new Set(snapshot.blocked.map((tile) => `${tile.x},${tile.y}`));
     for (const [key, image] of this.tileImages) {
-      image.setTexture(blocked.has(key) ? 'tile-blocked' : 'tile-ground');
+      image.setTexture(
+        blocked.has(key) ? 'tile-blocked' : this.roadTiles.has(key) ? 'tile-road' : 'tile-ground',
+      );
     }
   }
 
@@ -168,6 +177,23 @@ export class IsometricScene extends Phaser.Scene {
     }
   }
 
+  private ensureVehicles(snapshot: SimulationSnapshot): void {
+    for (const vehicle of snapshot.vehicles) {
+      if (this.vehicleSprites.has(vehicle.id)) continue;
+      const token = this.add.image(0, 0, 'vehicle-engine').setOrigin(0.5, 0.5);
+      const label = this.add
+        .text(0, 0, vehicle.name, {
+          fontFamily: 'Segoe UI, sans-serif',
+          fontSize: '13px',
+          color: '#ffd7cc',
+          stroke: '#102018',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5, 1);
+      this.vehicleSprites.set(vehicle.id, { token, label });
+    }
+  }
+
   private interpolate(): void {
     const { snapshot, previousSnapshot, snapshotAt } = useGameStore.getState();
     if (!snapshot) return;
@@ -186,6 +212,22 @@ export class IsometricScene extends Phaser.Scene {
       view.label.setPosition(screen.x, screen.y - 24);
       view.token.setDepth(screen.y + 8);
       view.label.setDepth(screen.y + 9);
+    }
+
+    for (const vehicle of snapshot.vehicles) {
+      const view = this.vehicleSprites.get(vehicle.id);
+      if (!view) continue;
+      const previous = previousSnapshot?.vehicles.find((candidate) => candidate.id === vehicle.id);
+      const from = previous?.position ?? vehicle.position;
+      const x = from.x + (vehicle.position.x - from.x) * alpha;
+      const y = from.y + (vehicle.position.y - from.y) * alpha;
+      const heading = lerpAngle(previous?.heading ?? vehicle.heading, vehicle.heading, alpha);
+      const screen = worldToScreen(x, y);
+      view.token.setPosition(screen.x, screen.y);
+      view.token.setRotation(headingToScreen(heading));
+      view.label.setPosition(screen.x, screen.y - 28);
+      view.token.setDepth(screen.y + 4);
+      view.label.setDepth(screen.y + 5);
     }
   }
 
@@ -217,9 +259,9 @@ export class IsometricScene extends Phaser.Scene {
     const ids =
       selection.kind === 'team'
         ? snapshot.team.memberIds
-        : selection.kind === 'object'
-          ? []
-          : [selection.id];
+        : selection.kind === 'responder'
+          ? [selection.id]
+          : [];
     this.selectionGraphics.lineStyle(2, selection.kind === 'team' ? 0x8ee0b2 : 0x7ecbff, 1);
     for (const id of ids) {
       const view = this.sprites.get(id);
@@ -232,20 +274,27 @@ export class IsometricScene extends Phaser.Scene {
       this.selectionGraphics.lineStyle(2, 0xe2b657, 1);
       this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 16);
     }
+    if (selection.kind === 'vehicle') {
+      const view = this.vehicleSprites.get(selection.id);
+      if (!view) return;
+      this.selectionGraphics.lineStyle(2, 0xe07a3d, 1);
+      this.selectionGraphics.strokeCircle(view.token.x, view.token.y, 28);
+    }
   }
 
   private hitTest(worldX: number, worldY: number): SceneHit | null {
     let best: SceneHit | null = null;
-    let bestDistance = 22;
-    const consider = (kind: SceneHit['kind'], id: string, view: SpriteView) => {
+    let bestDistance = 36;
+    const consider = (kind: SceneHit['kind'], id: string, view: SpriteView, radius: number) => {
       const distance = Phaser.Math.Distance.Between(worldX, worldY, view.token.x, view.token.y);
-      if (distance < bestDistance) {
+      if (distance < radius && distance < bestDistance) {
         bestDistance = distance;
         best = { kind, id };
       }
     };
-    for (const [id, view] of this.objectSprites) consider('object', id, view);
-    for (const [id, view] of this.sprites) consider('responder', id, view);
+    for (const [id, view] of this.objectSprites) consider('object', id, view, 22);
+    for (const [id, view] of this.vehicleSprites) consider('vehicle', id, view, 36);
+    for (const [id, view] of this.sprites) consider('responder', id, view, 22);
     return best;
   }
 }
@@ -255,4 +304,34 @@ function textureFor(object: ObjectSnapshot): string {
   if (object.objectType === 'door')
     return object.state === 'open' ? 'object-door-open' : 'object-door';
   return object.state === 'operated' ? 'object-panel-on' : 'object-panel';
+}
+
+function roadTileKeys(snapshot: SimulationSnapshot): string[] {
+  const nodes = new Map(snapshot.roads.map((node) => [node.id, node.position]));
+  const keys: string[] = [];
+  const paint = (x: number, y: number) => keys.push(`${x},${y}`);
+  for (const node of snapshot.roads) paint(node.position.x, node.position.y);
+  for (const edge of snapshot.roadEdges) {
+    const from = nodes.get(edge.from);
+    const to = nodes.get(edge.to);
+    if (!from || !to) continue;
+    const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y));
+    for (let step = 0; step <= steps; step += 1) {
+      const x = Math.round(from.x + ((to.x - from.x) * step) / Math.max(steps, 1));
+      const y = Math.round(from.y + ((to.y - from.y) * step) / Math.max(steps, 1));
+      paint(x, y);
+    }
+  }
+  return keys;
+}
+
+function headingToScreen(heading: number): number {
+  const ahead = worldToScreen(0.5 + Math.cos(heading), 0.5 + Math.sin(heading));
+  const origin = worldToScreen(0.5, 0.5);
+  return Math.atan2(ahead.y - origin.y, ahead.x - origin.x);
+}
+
+function lerpAngle(from: number, to: number, alpha: number): number {
+  const delta = Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  return from + delta * alpha;
 }

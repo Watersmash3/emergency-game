@@ -5,7 +5,7 @@ import { sendCommand, useGameStore, type Selection } from '../../state/gameStore
 import { screenToTile } from '../rendering/iso.ts';
 
 export interface SceneHit {
-  kind: 'responder' | 'object';
+  kind: 'responder' | 'object' | 'vehicle';
   id: string;
 }
 
@@ -33,12 +33,14 @@ export function bindSceneInput(
     const hit = hitTest(world.x, world.y);
     if (pointer.button === 2) {
       if (hit?.kind === 'object') issueInteraction(hit.id);
+      else if (hit?.kind === 'vehicle') issueVehicle(hit.id);
       else issueMove(screenToTile(world.x, world.y));
       return;
     }
     if (pointer.button !== 0) return;
 
     if (hit?.kind === 'object') useGameStore.getState().selectObject(hit.id);
+    else if (hit?.kind === 'vehicle') useGameStore.getState().selectVehicle(hit.id);
     else if (hit?.kind === 'responder') useGameStore.getState().selectResponder(hit.id);
     else useGameStore.getState().clearSelection();
   });
@@ -62,6 +64,24 @@ export function bindSceneInput(
       camera.setZoom(next);
     },
   );
+}
+
+function issueVehicle(vehicleId: string): void {
+  const { selection, snapshot } = useGameStore.getState();
+  if (selection?.kind === 'team' && snapshot) {
+    sendCommand({ type: 'board-team', teamId: selection.id, vehicleId });
+    return;
+  }
+  if (selection?.kind === 'responder') {
+    const aboard = snapshot?.entities.find((entity) => entity.id === selection.id)?.aboardVehicleId;
+    sendCommand(
+      aboard === vehicleId
+        ? { type: 'exit-vehicle', responderId: selection.id, vehicleId }
+        : { type: 'board-vehicle', responderId: selection.id, vehicleId },
+    );
+    return;
+  }
+  useGameStore.getState().selectVehicle(vehicleId);
 }
 
 function issueInteraction(objectId: string): void {

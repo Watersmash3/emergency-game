@@ -44,6 +44,37 @@ export const commandSchema = z.discriminatedUnion('type', [
     type: z.literal('cancel-task'),
     taskId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal('board-vehicle'),
+    responderId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('exit-vehicle'),
+    responderId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('board-team'),
+    teamId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('disembark-team'),
+    teamId: z.string().min(1),
+    vehicleId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('drive-vehicle'),
+    vehicleId: z.string().min(1),
+    destinationNodeId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('respond-to'),
+    teamId: z.string().min(1),
+    destinationNodeId: z.string().min(1),
+    disembark: z.boolean(),
+  }),
 ]);
 
 export type Command = z.infer<typeof commandSchema>;

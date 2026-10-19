@@ -27,7 +27,7 @@ Dependency direction is one-way. `protocol` depends only on Zod. `simulation` an
 
 ## What each layer owns
 
-The simulation owns positions, paths, tasks, equipment, object state, pause, and tick count. A snapshot is a plain JSON object and is the document a future save system will store.
+The simulation owns positions, paths, tasks, equipment, object state, vehicle occupancy, pause, and tick count. A snapshot is a plain JSON object and is the document a future save system will store.
 
 Zustand owns the latest snapshot, the previous snapshot used for rendering interpolation, the current selection, and the last command result. Selection is not simulation state. Pausing is.
 

@@ -20,6 +20,14 @@ describe('protocol schemas', () => {
         doorId: 'door-training',
       }).success,
     ).toBe(true);
+    expect(
+      commandSchema.safeParse({
+        type: 'respond-to',
+        teamId: 'engine-1',
+        destinationNodeId: 'n-staging',
+        disembark: true,
+      }).success,
+    ).toBe(true);
   });
 
   it('rejects a scenario with no responders', () => {

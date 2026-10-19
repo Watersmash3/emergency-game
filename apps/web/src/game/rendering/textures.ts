@@ -15,6 +15,8 @@ export function createPlaceholderTextures(scene: Phaser.Scene): void {
   drawMarker(scene, 'object-door-open', 0x8ee0b2);
   drawMarker(scene, 'object-panel', 0x7fcdbb);
   drawMarker(scene, 'object-panel-on', 0xf4f7f5);
+  drawDiamond(scene, 'tile-road', 0x6d6456, 0x3c342c);
+  drawVehicle(scene);
 }
 
 function drawDiamond(scene: Phaser.Scene, key: string, fill: number, stroke: number): void {
@@ -41,6 +43,19 @@ function drawMarker(scene: Phaser.Scene, key: string, color: number): void {
   graphics.lineStyle(3, 0x17211c, 1);
   graphics.strokeRect(4, 4, size - 8, size - 8);
   graphics.generateTexture(key, size, size);
+  graphics.destroy();
+}
+
+function drawVehicle(scene: Phaser.Scene): void {
+  const size = 84;
+  const graphics = scene.add.graphics();
+  graphics.fillStyle(0xb4332a, 1);
+  graphics.fillRect(8, 30, 68, 24);
+  graphics.fillStyle(0xf2c14e, 1);
+  graphics.fillRect(56, 33, 16, 18);
+  graphics.lineStyle(3, 0x17211c, 1);
+  graphics.strokeRect(8, 30, 68, 24);
+  graphics.generateTexture('vehicle-engine', size, size);
   graphics.destroy();
 }
 

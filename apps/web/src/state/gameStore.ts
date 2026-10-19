@@ -5,6 +5,7 @@ export type Selection =
   | { kind: 'responder'; id: string }
   | { kind: 'team'; id: string }
   | { kind: 'object'; id: string }
+  | { kind: 'vehicle'; id: string }
   | null;
 
 export interface CommandResultView {
@@ -24,6 +25,7 @@ interface GameState {
   selectResponder: (id: string) => void;
   selectTeam: (id: string) => void;
   selectObject: (id: string) => void;
+  selectVehicle: (id: string) => void;
   clearSelection: () => void;
   reset: () => void;
 }
@@ -64,6 +66,7 @@ export const useGameStore = create<GameState>((set) => ({
   selectResponder: (id) => set({ selection: { kind: 'responder', id } }),
   selectTeam: (id) => set({ selection: { kind: 'team', id } }),
   selectObject: (id) => set({ selection: { kind: 'object', id } }),
+  selectVehicle: (id) => set({ selection: { kind: 'vehicle', id } }),
   clearSelection: () => set({ selection: null }),
   reset: () => set(initial),
 }));

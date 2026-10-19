@@ -32,6 +32,8 @@ import type {
   RetrieveEquipmentTask,
   Task,
 } from './types.ts';
+import { advanceVehicleTask } from './vehicles.ts';
+import { approachTiles, blocksPedestrian, canTakeFrom } from './vehicleRules.ts';
 
 const TAKE_TICKS = 10;
 const FORCE_TICKS = 40;
@@ -120,6 +122,13 @@ export function stepTasks(world: World): void {
       case 'operate-panel':
         advanceOperate(world, task);
         break;
+      case 'board-vehicle':
+      case 'exit-vehicle':
+      case 'respond':
+        advanceVehicleTask(world, task);
+        break;
+      case 'drive-vehicle':
+        break;
       default: {
         const unreachable: never = task;
         return unreachable;
@@ -153,6 +162,7 @@ function forceDoor(world: World, responderId: string, doorId: string): CommandRe
   if (!entity?.responder || !entity.position) {
     return { ok: false, reason: CommandRejection.UnknownResponder };
   }
+  if (blocksPedestrian(entity)) return { ok: false, reason: CommandRejection.Aboard };
   const door = world.entities.get(doorId);
   if (door?.interactable?.objectType !== 'door') {
     return { ok: false, reason: CommandRejection.UnknownObject };
@@ -213,6 +223,7 @@ function operatePanel(world: World, responderId: string, panelId: string): Comma
   if (!entity?.responder || !entity.position) {
     return { ok: false, reason: CommandRejection.UnknownResponder };
   }
+  if (blocksPedestrian(entity)) return { ok: false, reason: CommandRejection.Aboard };
   const panel = world.entities.get(panelId);
   if (panel?.interactable?.objectType !== 'panel') {
     return { ok: false, reason: CommandRejection.UnknownObject };
@@ -249,9 +260,13 @@ function operatePanel(world: World, responderId: string, panelId: string): Comma
 function retrieveTeam(world: World, teamId: string, lockerId: string): CommandResult {
   if (world.team.id !== teamId) return { ok: false, reason: CommandRejection.UnknownTeam };
   const locker = world.entities.get(lockerId);
-  if (locker?.interactable?.objectType !== 'locker') {
-    return { ok: false, reason: CommandRejection.UnknownObject };
+  if (!locker || !canTakeFrom(locker)) {
+    return {
+      ok: false,
+      reason: locker?.vehicle ? CommandRejection.VehicleMoving : CommandRejection.UnknownObject,
+    };
   }
+  const storageTiles = approachTiles(world, locker);
 
   const items = storedItems(world, lockerId).filter((item) => item.reservedByTaskId === null);
   if (items.length === 0) {
@@ -273,6 +288,10 @@ function retrieveTeam(world: World, teamId: string, lockerId: string): CommandRe
       plans.push({ memberId, ok: false, reason: CommandRejection.UnknownResponder });
       continue;
     }
+    if (blocksPedestrian(entity)) {
+      plans.push({ memberId, ok: false, reason: CommandRejection.Aboard });
+      continue;
+    }
     if (countOwned(world, memberId) >= world.inventoryCapacity) {
       plans.push({ memberId, ok: false, reason: CommandRejection.InventoryFull });
       continue;
@@ -282,11 +301,7 @@ function retrieveTeam(world: World, teamId: string, lockerId: string): CommandRe
       plans.push({ memberId, ok: false, reason: CommandRejection.NoEquipment });
       continue;
     }
-    const approachTile = nearestApproach(
-      world,
-      tileOf(entity.position),
-      locker.interactable.interactionTiles,
-    );
+    const approachTile = nearestApproach(world, tileOf(entity.position), storageTiles);
     if (!approachTile) {
       plans.push({ memberId, ok: false, reason: CommandRejection.NoPath });
       continue;
@@ -340,9 +355,13 @@ function planFreeRetrieve(
   if (!entity?.responder || !entity.position) {
     return { ok: false, reason: CommandRejection.UnknownResponder };
   }
+  if (blocksPedestrian(entity)) return { ok: false, reason: CommandRejection.Aboard };
   const locker = world.entities.get(lockerId);
-  if (locker?.interactable?.objectType !== 'locker') {
-    return { ok: false, reason: CommandRejection.UnknownObject };
+  if (!locker || !canTakeFrom(locker)) {
+    return {
+      ok: false,
+      reason: locker?.vehicle ? CommandRejection.VehicleMoving : CommandRejection.UnknownObject,
+    };
   }
   if (countOwned(world, responderId) >= world.inventoryCapacity) {
     return { ok: false, reason: CommandRejection.InventoryFull };
@@ -362,7 +381,7 @@ function planFreeRetrieve(
   const approachTile = nearestApproach(
     world,
     tileOf(entity.position),
-    locker.interactable.interactionTiles,
+    approachTiles(world, locker),
   );
   if (!approachTile) return { ok: false, reason: CommandRejection.NoPath };
   return { ok: true, equipmentId: free.id, approachTile };
@@ -433,9 +452,9 @@ function findTool(
   for (const item of world.equipment.values()) {
     if (item.ownerId || item.reservedByTaskId || !item.locationId) continue;
     if (!hasCapability(world, item, FORCE_CAPABILITY)) continue;
-    const locker = world.entities.get(item.locationId);
-    if (locker?.interactable?.objectType !== 'locker') continue;
-    const approach = nearestApproach(world, origin, locker.interactable.interactionTiles);
+    const storage = world.entities.get(item.locationId);
+    if (!storage || !canTakeFrom(storage)) continue;
+    const approach = nearestApproach(world, origin, approachTiles(world, storage));
     if (!approach) continue;
     const length = Math.abs(approach.x - origin.x) + Math.abs(approach.y - origin.y);
     if (!best || length < best.length || (length === best.length && item.id < best.item.id)) {
@@ -448,7 +467,7 @@ function findTool(
 function advanceInteract(world: World, task: Task & { kind: 'interact' }): void {
   const target = world.entities.get(task.targetId);
   const entity = world.entities.get(task.assigneeId);
-  const tiles = target?.interactable?.interactionTiles ?? [];
+  const tiles = target ? approachTiles(world, target) : [];
   const standing = entity?.position ? tileOf(entity.position) : undefined;
   if (!standing || !tiles.some((tile) => tile.x === standing.x && tile.y === standing.y)) {
     failTask(world, task, CommandRejection.NotAtPosition);

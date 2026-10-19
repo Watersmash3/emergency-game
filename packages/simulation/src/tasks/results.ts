@@ -17,6 +17,20 @@ export const CommandRejection = {
   Cancelled: 'Task was cancelled',
   UnknownTask: 'Unknown task',
   Finished: 'Task is already finished',
+  Aboard: 'Responder is aboard a vehicle',
+  AlreadyAboard: 'Responder is already aboard',
+  NotAboard: 'Responder is not aboard',
+  VehicleMoving: 'Vehicle is moving',
+  NoDriver: 'No available driver',
+  Full: 'Insufficient seats',
+  NoVehicle: 'Vehicle unavailable',
+  UnknownNode: 'Unknown destination',
+  Unreachable: 'Unreachable destination',
+  Missing: 'Responder is not available',
+  NoExit: 'No exit position',
+  Interrupted: 'Interrupted boarding',
+  TransportCancelled: 'Transport was cancelled',
+  ParkingReserved: 'Destination is reserved',
 } as const;
 
 export type CommandResult = { ok: true } | { ok: false; reason: string };

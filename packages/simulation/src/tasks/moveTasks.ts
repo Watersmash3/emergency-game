@@ -8,6 +8,8 @@ import { cancelTask, clearRoute, isOpen, nextIdentifier, overrideWith } from './
 import { CommandRejection, type CommandResult } from './results.ts';
 import { transition } from './transitions.ts';
 import type { MoveTask } from './types.ts';
+import { applyVehicleCommand } from './vehicles.ts';
+import { blocksPedestrian } from './vehicleRules.ts';
 
 export { CommandRejection, type CommandResult } from './results.ts';
 
@@ -32,6 +34,13 @@ export function applyCommand(world: World, command: Command): CommandResult {
     case 'retrieve-team':
     case 'cancel-task':
       return applyInteractionCommand(world, command);
+    case 'board-vehicle':
+    case 'exit-vehicle':
+    case 'board-team':
+    case 'disembark-team':
+    case 'drive-vehicle':
+    case 'respond-to':
+      return applyVehicleCommand(world, command);
     default: {
       const unreachable: never = command;
       return unreachable;
@@ -44,6 +53,8 @@ function moveResponder(world: World, responderId: string, destination: Tile): Co
   if (!entity?.responder || !entity.position) {
     return { ok: false, reason: CommandRejection.UnknownResponder };
   }
+  const aboard = blocksPedestrian(entity);
+  if (aboard) return { ok: false, reason: aboard };
   if (!inBounds(world.width, world.height, destination)) {
     return { ok: false, reason: CommandRejection.OutOfBounds };
   }
@@ -72,6 +83,7 @@ function moveTeam(world: World, teamId: string, destination: Tile): CommandResul
   }
 
   const assignments = new Map<string, Tile | null>();
+  const failure = new Map<string, string>();
   const used = new Set<string>();
   const candidates = candidateTiles(world, destination);
 
@@ -79,6 +91,12 @@ function moveTeam(world: World, teamId: string, destination: Tile): CommandResul
     const entity = world.entities.get(memberId);
     if (!entity?.position) {
       assignments.set(memberId, null);
+      failure.set(memberId, CommandRejection.UnknownResponder);
+      continue;
+    }
+    if (entity.responder?.aboardVehicleId) {
+      assignments.set(memberId, null);
+      failure.set(memberId, CommandRejection.Aboard);
       continue;
     }
     const start = tileOf(entity.position);
@@ -95,7 +113,7 @@ function moveTeam(world: World, teamId: string, destination: Tile): CommandResul
   }
 
   if ([...assignments.values()].every((tile) => tile === null)) {
-    return { ok: false, reason: CommandRejection.NoPath };
+    return { ok: false, reason: failure.values().next().value ?? CommandRejection.NoPath };
   }
 
   const groupId = nextIdentifier(world, 'group');
@@ -111,6 +129,7 @@ function moveTeam(world: World, teamId: string, destination: Tile): CommandResul
       groupId,
       destination: tile ?? destination,
       reachable: tile !== null,
+      failureReason: failure.get(memberId),
     });
     const entity = world.entities.get(memberId);
     if (entity) clearRoute(entity);
@@ -126,6 +145,7 @@ function createMoveTask(
     source: MoveTask['source'];
     destination: Tile;
     reachable: boolean;
+    failureReason?: string;
     groupId?: string;
   },
 ): MoveTask {
@@ -142,7 +162,7 @@ function createMoveTask(
 
   if (!input.reachable) {
     transition(task, 'failed');
-    task.failureReason = CommandRejection.NoPath;
+    task.failureReason = input.failureReason ?? CommandRejection.NoPath;
   } else {
     transition(task, 'ready');
     transition(task, 'running');

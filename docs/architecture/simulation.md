@@ -14,17 +14,20 @@ An entity has a stable string id and optional components:
 
 - `position`: continuous world coordinates. The center of tile `(x, y)` is `(x + 0.5, y + 0.5)`.
 - `movement`: speed, remaining waypoints, and the tile the current path was planned for.
-- `responder`: display name.
+- `responder`: display name, and the vehicle id while the responder is aboard.
 - `teamMembership`: team id.
 - `interactable`: object type, state, required capability, and the tiles a responder must stand on.
+- `vehicle`: definition, heading, footprint, seats, occupants, driver, road node, and status.
 
-The training yard's team is a record of member ids, not an entity. Obstacles are blocked cells on the navigation grid. A locked door is also a blocked cell until a force-door task opens it. Equipment instances live beside the entities: each one is in a locker or carried by one responder, and a task may reserve it.
+The training yard's team is a record of member ids and an optional apparatus id, not an entity. Occupancy is stored on the vehicle. It is not inferred from team membership. Obstacles are blocked cells on the navigation grid. A locked door is also a blocked cell until a force-door task opens it. Equipment instances live beside the entities: each one is in a locker, stored on a stationary vehicle, or carried by one responder, and a task may reserve it.
 
 ## Navigation
 
 Pedestrian movement uses 4-connected A*. Units do not block each other. A path is a list of tile centers. If the destination is blocked, out of bounds, or unreachable, the command is rejected and existing tasks stay as they were.
 
-A team order picks distinct walkable tiles near the clicked tile, preferring that tile and then the nearest tiles. Only the nearest 16 walkable tiles are eligible, so a responder who cannot reach the staging area fails individually. If nobody can reach it, the whole order is rejected.
+Vehicles use a separate road graph. A* runs over road nodes and bidirectional edges. A vehicle moves from node center to node center at its speed and turns to face the current segment. It does not use pedestrian routes, and it does not block them. An unknown or disconnected destination is rejected before anyone boards.
+
+A team order picks distinct walkable tiles near the clicked tile, preferring that tile and then the nearest tiles. Only the nearest 16 walkable tiles are eligible, so a responder who cannot reach the staging area fails individually. If nobody can reach it, the whole order is rejected. A responder who is aboard a vehicle is not given a pedestrian path.
 
 ## Worker messages
 
@@ -34,4 +37,4 @@ The worker posts a snapshot after every accepted or rejected command, and after 
 
 ## Snapshot
 
-`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, inventory capacity, and tasks. Entity paths are included so the renderer can draw them without pathfinding. The object survives `JSON.parse(JSON.stringify(snapshot))`. IndexedDB is not wired up; this object is the boundary it will use.
+`getSnapshot()` returns the scenario id, tick, pause flag, map size, blocked tiles, team, responders, world objects, vehicles, road nodes and edges, inventory capacity, and tasks. Entity paths are included so the renderer can draw them without pathfinding. An aboard responder's position is derived from the vehicle. The object survives `JSON.parse(JSON.stringify(snapshot))`. IndexedDB is not wired up; this object is the boundary it will use.

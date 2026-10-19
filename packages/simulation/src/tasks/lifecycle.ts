@@ -7,6 +7,7 @@ import { findPath } from '../navigation/aStar.ts';
 import { isWalkable, tileOf } from '../navigation/grid.ts';
 import { CommandRejection } from './results.ts';
 import { transition } from './transitions.ts';
+import { parkVehicle, releaseTransport, vehicleInvalidReason } from './vehicleRules.ts';
 import {
   isParentTask,
   type InteractTask,
@@ -153,9 +154,12 @@ export function cancelTask(world: World, task: Task): void {
   const root = rootTask(world, task);
   if (!isOpen(root.state)) return;
   closeDescendants(world, root.id, true);
+  noteCancellation(root);
+  if (root.kind === 'drive-vehicle' || root.kind === 'respond') parkVehicle(world, root.assigneeId);
   transition(root, 'cancelled');
   root.suspendedByTaskId = undefined;
   releaseReservations(world, root);
+  releaseTransport(world, root.id);
   if (isParentTask(root)) root.childTaskId = undefined;
   clearRoute(world.entities.get(root.assigneeId));
 }
@@ -163,10 +167,12 @@ export function cancelTask(world: World, task: Task): void {
 export function failTask(world: World, task: Task, reason: string): void {
   if (!isOpen(task.state)) return;
   closeDescendants(world, task.id, true);
+  if (task.kind === 'drive-vehicle' || task.kind === 'respond') parkVehicle(world, task.assigneeId);
   transition(task, 'failed');
   task.failureReason = reason;
   task.suspendedByTaskId = undefined;
   releaseReservations(world, task);
+  releaseTransport(world, task.id);
   if (isParentTask(task)) task.childTaskId = undefined;
   clearRoute(world.entities.get(task.assigneeId));
 }
@@ -177,6 +183,7 @@ export function completeTask(world: World, task: Task): void {
   if (task.state !== 'running') return;
   transition(task, 'completed');
   releaseReservations(world, task);
+  releaseTransport(world, task.id);
   if (isParentTask(task)) task.childTaskId = undefined;
   tryResume(world, task.id);
 }
@@ -188,6 +195,7 @@ export function parkChildren(world: World, parent: Task): void {
       parent.progressTicks = Math.max(parent.progressTicks, child.progressTicks);
     }
     transferReservations(world, child, parent);
+    releaseTransport(world, child.id);
     transition(child, 'cancelled');
     child.suspendedByTaskId = undefined;
   }
@@ -207,11 +215,28 @@ export function overrideWith(world: World, assigneeId: string, individualTaskId:
     }
     if (task.state === 'running') {
       parkChildren(world, task);
+      releaseTransport(world, task.id);
       transition(task, 'suspended');
       task.suspendedByTaskId = individualTaskId;
       continue;
     }
     if (task.state === 'suspended') task.suspendedByTaskId = individualTaskId;
+  }
+  const nested = [...world.tasks.values()].filter(
+    (task) =>
+      task.assigneeId === assigneeId &&
+      Boolean(task.parentId) &&
+      task.source === 'team' &&
+      task.id !== individualTaskId &&
+      isOpen(task.state),
+  );
+  for (const task of nested) {
+    if (task.state === 'running') {
+      parkChildren(world, task);
+      releaseTransport(world, task.id);
+      transition(task, 'suspended');
+      task.suspendedByTaskId = individualTaskId;
+    } else if (task.state === 'suspended') task.suspendedByTaskId = individualTaskId;
   }
 }
 
@@ -298,6 +323,12 @@ function invalidReason(world: World, task: Task): string | null {
       return invalidForce(world, task, from);
     case 'operate-panel':
       return invalidOperate(world, task, from);
+    case 'board-vehicle':
+    case 'exit-vehicle':
+    case 'drive-vehicle':
+      return vehicleInvalidReason(world, task);
+    case 'respond':
+      return null;
     default: {
       const unreachable: never = task;
       return unreachable;
@@ -321,7 +352,10 @@ function invalidRetrieve(
     return CommandRejection.InventoryFull;
   }
   const locker = world.entities.get(task.targetId);
-  if (locker?.interactable?.objectType !== 'locker') return CommandRejection.UnknownObject;
+  if (!locker || (locker.interactable?.objectType !== 'locker' && !locker.vehicle)) {
+    return CommandRejection.UnknownObject;
+  }
+  if (locker.vehicle && locker.vehicle.status === 'moving') return CommandRejection.VehicleMoving;
   if (task.approachTile && !findPath(world, from, task.approachTile))
     return CommandRejection.NoPath;
   return null;
@@ -380,12 +414,23 @@ function descendants(world: World, rootId: string): Task[] {
   return result;
 }
 
+function noteCancellation(task: Task): void {
+  if (task.failureReason) return;
+  if (task.kind === 'board-vehicle') task.failureReason = CommandRejection.Interrupted;
+  if (task.kind === 'respond' || task.kind === 'drive-vehicle') {
+    task.failureReason = CommandRejection.TransportCancelled;
+  }
+}
+
 function closeDescendants(world: World, rootId: string, release: boolean): void {
   const root = world.tasks.get(rootId);
   for (const child of descendants(world, rootId)) {
     if (!isOpen(child.state)) continue;
     if (release || !root) releaseReservations(world, child);
     else transferReservations(world, child, root);
+    releaseTransport(world, child.id);
+    if (child.kind === 'drive-vehicle') parkVehicle(world, child.assigneeId);
+    noteCancellation(child);
     transition(child, 'cancelled');
     child.suspendedByTaskId = undefined;
   }

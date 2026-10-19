@@ -14,6 +14,11 @@ export function makeScenario(
     equipmentCatalog?: Scenario['equipmentCatalog'];
     equipment?: Scenario['equipment'];
     inventoryCapacity?: number;
+    apparatusId?: string;
+    roadNodes?: Scenario['roadNodes'];
+    roadEdges?: Scenario['roadEdges'];
+    vehicleCatalog?: Scenario['vehicleCatalog'];
+    vehicles?: Scenario['vehicles'];
   } = {},
 ): Scenario {
   const responders = input.responders ?? [
@@ -32,12 +37,17 @@ export function makeScenario(
       id: 'engine-1',
       name: 'Engine 1',
       memberIds: input.memberIds ?? responders.map((responder) => responder.id),
+      ...(input.apparatusId ? { apparatusId: input.apparatusId } : {}),
     },
     responders,
     ...(input.objects ? { objects: input.objects } : {}),
     ...(input.equipmentCatalog ? { equipmentCatalog: input.equipmentCatalog } : {}),
     ...(input.equipment ? { equipment: input.equipment } : {}),
     ...(input.inventoryCapacity ? { inventoryCapacity: input.inventoryCapacity } : {}),
+    ...(input.roadNodes ? { roadNodes: input.roadNodes } : {}),
+    ...(input.roadEdges ? { roadEdges: input.roadEdges } : {}),
+    ...(input.vehicleCatalog ? { vehicleCatalog: input.vehicleCatalog } : {}),
+    ...(input.vehicles ? { vehicles: input.vehicles } : {}),
   });
 }
 

@@ -14,7 +14,11 @@ describe('training yard', () => {
       'door',
       'panel',
     ]);
-    expect(trainingYard.equipment).toHaveLength(3);
+    expect(trainingYard.equipment).toHaveLength(6);
     expect(trainingYard.blocked).toContainEqual({ x: 10, y: 12 });
+    expect(trainingYard.team.apparatusId).toBe('apparatus-engine-1');
+    expect(trainingYard.vehicles).toHaveLength(1);
+    expect(trainingYard.vehicles[0]?.definitionId).toBe('fire_engine_standard');
+    expect(trainingYard.roadNodes.map((node) => node.id)).toContain('n-staging');
   });
 });

@@ -18,6 +18,7 @@ export function stepMovement(world: World): void {
   );
 
   for (const entity of entities) {
+    if (entity.vehicle || entity.responder?.aboardVehicleId) continue;
     const task = runningMoveTask(world, entity.id);
     if (!entity.position || !entity.movement || !task) {
       if (entity.movement) {

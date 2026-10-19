@@ -13,6 +13,8 @@
 - Equipment retrieval, inventory slots, and exclusive reservations
 - Multi-step force-door, including fetching a Halligan tool
 - Team equipment retrieval that keeps working when one member is overridden
+- Engine 1 as a vehicle entity with its own occupants, seats, and stored equipment
+- Road-graph navigation, crew boarding, and a compound respond order
 
 ## Next milestone
 
@@ -22,13 +24,14 @@ One small structure-fire scenario on this command model:
 - A fire state that spreads on a slower tick than movement
 - A suppress order that requires a responder to carry an extinguisher to an operating position
 - The same override rules: pulling one firefighter off the line does not cancel the crew
+- The crew can respond in Engine 1 and take the extinguisher from its storage
 
 ## Deliberately deferred
 
 - Drag-select, shift-queue, and number-key groups
 - IndexedDB save slots and migrations
 - Tiled map import
-- Vehicles, road graphs, and traffic
+- Vehicle steering, traffic, pumps, hoses, and ladders
 - Police, EMS, extrication, hazmat, and civilians
 - Multi-floor interiors
 - Speed controls other than pause

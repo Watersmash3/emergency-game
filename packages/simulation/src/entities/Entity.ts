@@ -3,6 +3,7 @@ import type { Movement } from '../components/movement.ts';
 import type { Position } from '../components/position.ts';
 import type { Responder } from '../components/responder.ts';
 import type { TeamMembership } from '../components/teamMembership.ts';
+import type { Vehicle } from '../components/vehicle.ts';
 
 /** A stable id plus the components the entity currently has. */
 export interface Entity {
@@ -12,4 +13,5 @@ export interface Entity {
   responder?: Responder;
   teamMembership?: TeamMembership;
   interactable?: Interactable;
+  vehicle?: Vehicle;
 }

@@ -33,6 +33,7 @@ export const teamDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   memberIds: z.array(z.string().min(1)).min(1),
+  apparatusId: z.string().min(1).optional(),
 });
 
 export type TeamDefinition = z.infer<typeof teamDefinitionSchema>;
@@ -60,6 +61,43 @@ export const equipmentDefinitionSchema = z.object({
 
 export type EquipmentDefinition = z.infer<typeof equipmentDefinitionSchema>;
 
+export const roadNodeSchema = z.object({
+  id: z.string().min(1),
+  position: tileSchema,
+  kind: z.enum(['intersection', 'staging', 'spawn']),
+});
+
+export type RoadNodeDefinition = z.infer<typeof roadNodeSchema>;
+
+export const roadEdgeSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+});
+
+export type RoadEdgeDefinition = z.infer<typeof roadEdgeSchema>;
+
+export const vehicleCatalogSchema = z.object({
+  id: z.string().min(1),
+  capacity: z.number().int().positive(),
+  speed: z.number().positive(),
+  footprint: z.object({
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  }),
+});
+
+export type VehicleCatalogDefinition = z.infer<typeof vehicleCatalogSchema>;
+
+export const vehiclePlacementSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  definitionId: z.string().min(1),
+  nodeId: z.string().min(1),
+  heading: z.number().default(0),
+});
+
+export type VehiclePlacement = z.infer<typeof vehiclePlacementSchema>;
+
 export const equipmentPlacementSchema = z.object({
   id: z.string().min(1),
   definitionId: z.string().min(1),
@@ -82,6 +120,10 @@ export const scenarioSchema = z.object({
   equipmentCatalog: z.array(equipmentDefinitionSchema).default([]),
   equipment: z.array(equipmentPlacementSchema).default([]),
   inventoryCapacity: z.number().int().positive().default(2),
+  roadNodes: z.array(roadNodeSchema).default([]),
+  roadEdges: z.array(roadEdgeSchema).default([]),
+  vehicleCatalog: z.array(vehicleCatalogSchema).default([]),
+  vehicles: z.array(vehiclePlacementSchema).default([]),
 });
 
 export type Scenario = z.infer<typeof scenarioSchema>;

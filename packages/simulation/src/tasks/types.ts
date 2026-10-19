@@ -43,13 +43,41 @@ export interface OperatePanelTask extends ActivityTask {
 export interface InteractTask extends TaskCommon {
   kind: 'interact';
   targetId: string;
-  action: 'take' | 'force' | 'operate';
+  action: 'take' | 'force' | 'operate' | 'board' | 'exit';
   step: 'interact';
   progressTicks: number;
   durationTicks: number;
 }
 
-export type ParentTask = RetrieveEquipmentTask | ForceDoorTask | OperatePanelTask;
+export interface BoardVehicleTask extends ActivityTask {
+  kind: 'board-vehicle';
+}
+
+export interface ExitVehicleTask extends ActivityTask {
+  kind: 'exit-vehicle';
+}
+
+export interface DriveVehicleTask extends ActivityTask {
+  kind: 'drive-vehicle';
+  destinationNodeId: string;
+  nodeIds: string[];
+  pathIndex: number;
+}
+
+export interface RespondTask extends ActivityTask {
+  kind: 'respond';
+  destinationNodeId: string;
+  disembark: boolean;
+}
+
+export type ParentTask =
+  | RetrieveEquipmentTask
+  | ForceDoorTask
+  | OperatePanelTask
+  | BoardVehicleTask
+  | ExitVehicleTask
+  | DriveVehicleTask
+  | RespondTask;
 
 export type Task = MoveTask | ParentTask | InteractTask;
 
@@ -57,6 +85,10 @@ export function isParentTask(task: Task): task is ParentTask {
   return (
     task.kind === 'retrieve-equipment' ||
     task.kind === 'force-door' ||
-    task.kind === 'operate-panel'
+    task.kind === 'operate-panel' ||
+    task.kind === 'board-vehicle' ||
+    task.kind === 'exit-vehicle' ||
+    task.kind === 'drive-vehicle' ||
+    task.kind === 'respond'
   );
 }
