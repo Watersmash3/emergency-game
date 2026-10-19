@@ -1,0 +1,11 @@
+{
+  "name": "@emergency/content",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@emergency/protocol": "workspace:*"
+  }
+}

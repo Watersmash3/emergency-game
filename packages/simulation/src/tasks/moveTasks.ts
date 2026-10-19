@@ -1,0 +1,214 @@
+import type { Command, Tile } from '@emergency/protocol';
+
+import type { Entity } from '../entities/Entity.ts';
+import { findPath } from '../navigation/aStar.ts';
+import { inBounds, isBlocked, isWalkable, manhattan, tileOf } from '../navigation/grid.ts';
+import type { MoveTask } from '../tasks/MoveTask.ts';
+import { transition } from '../tasks/transitions.ts';
+import type { World } from '../core/world.ts';
+
+export const CommandRejection = {
+  UnknownResponder: 'Unknown responder',
+  UnknownTeam: 'Unknown team',
+  OutOfBounds: 'Destination is out of bounds',
+  Blocked: 'Destination is blocked',
+  NoPath: 'No path to destination',
+} as const;
+
+export type CommandResult = { ok: true } | { ok: false; reason: string };
+
+const OPEN_STATES = new Set<MoveTask['state']>(['pending', 'ready', 'running', 'suspended']);
+
+/** Nearby walkable tiles considered when spacing a team around an order. */
+const STAGING_CANDIDATES = 16;
+
+export function applyCommand(world: World, command: Command): CommandResult {
+  switch (command.type) {
+    case 'pause':
+      world.paused = true;
+      return { ok: true };
+    case 'resume':
+      world.paused = false;
+      return { ok: true };
+    case 'move-responder':
+      return moveResponder(world, command.responderId, command.destination);
+    case 'move-team':
+      return moveTeam(world, command.teamId, command.destination);
+    default: {
+      const unreachable: never = command;
+      return unreachable;
+    }
+  }
+}
+
+function moveResponder(world: World, responderId: string, destination: Tile): CommandResult {
+  const entity = world.entities.get(responderId);
+  if (!entity?.responder || !entity.position) {
+    return { ok: false, reason: CommandRejection.UnknownResponder };
+  }
+  if (!inBounds(world.width, world.height, destination)) {
+    return { ok: false, reason: CommandRejection.OutOfBounds };
+  }
+  if (isBlocked(world.blocked, destination)) {
+    return { ok: false, reason: CommandRejection.Blocked };
+  }
+  if (!findPath(world, tileOf(entity.position), destination)) {
+    return { ok: false, reason: CommandRejection.NoPath };
+  }
+
+  cancelTasks(
+    world,
+    responderId,
+    (task) => task.source === 'individual' && task.state === 'running',
+  );
+
+  const task = createMoveTask(world, {
+    assigneeId: responderId,
+    source: 'individual',
+    destination,
+    reachable: true,
+  });
+
+  const teamTask = [...world.tasks.values()].find(
+    (candidate) =>
+      candidate.assigneeId === responderId &&
+      candidate.source === 'team' &&
+      (candidate.state === 'running' || candidate.state === 'suspended'),
+  );
+  if (teamTask?.state === 'running') {
+    transition(teamTask, 'suspended');
+    teamTask.suspendedByTaskId = task.id;
+  } else if (teamTask?.state === 'suspended') {
+    teamTask.suspendedByTaskId = task.id;
+  }
+
+  clearRoute(entity);
+  return { ok: true };
+}
+
+function moveTeam(world: World, teamId: string, destination: Tile): CommandResult {
+  if (world.team.id !== teamId) return { ok: false, reason: CommandRejection.UnknownTeam };
+  if (!inBounds(world.width, world.height, destination)) {
+    return { ok: false, reason: CommandRejection.OutOfBounds };
+  }
+
+  const assignments = new Map<string, Tile | null>();
+  const used = new Set<string>();
+  const candidates = candidateTiles(world, destination);
+
+  for (const memberId of world.team.memberIds) {
+    const entity = world.entities.get(memberId);
+    if (!entity?.position) {
+      assignments.set(memberId, null);
+      continue;
+    }
+    const start = tileOf(entity.position);
+    let chosen: Tile | null = null;
+    for (const tile of candidates) {
+      const key = `${tile.x},${tile.y}`;
+      if (used.has(key)) continue;
+      if (!findPath(world, start, tile)) continue;
+      chosen = tile;
+      used.add(key);
+      break;
+    }
+    assignments.set(memberId, chosen);
+  }
+
+  if ([...assignments.values()].every((tile) => tile === null)) {
+    return { ok: false, reason: CommandRejection.NoPath };
+  }
+
+  const groupId = nextIdentifier(world, 'group');
+  for (const memberId of world.team.memberIds) {
+    cancelTasks(world, memberId, (task) => OPEN_STATES.has(task.state));
+    const tile = assignments.get(memberId) ?? null;
+    createMoveTask(world, {
+      assigneeId: memberId,
+      source: 'team',
+      groupId,
+      destination: tile ?? destination,
+      reachable: tile !== null,
+    });
+    const entity = world.entities.get(memberId);
+    if (entity) clearRoute(entity);
+  }
+
+  return { ok: true };
+}
+
+function createMoveTask(
+  world: World,
+  input: {
+    assigneeId: string;
+    source: MoveTask['source'];
+    destination: Tile;
+    reachable: boolean;
+    groupId?: string;
+  },
+): MoveTask {
+  const task: MoveTask = {
+    id: nextIdentifier(world, 'task'),
+    kind: 'move',
+    state: 'pending',
+    assigneeId: input.assigneeId,
+    source: input.source,
+    destination: { ...input.destination },
+  };
+  if (input.groupId) task.groupId = input.groupId;
+
+  if (!input.reachable) {
+    transition(task, 'failed');
+    task.failureReason = CommandRejection.NoPath;
+  } else {
+    transition(task, 'ready');
+    transition(task, 'running');
+  }
+
+  world.tasks.set(task.id, task);
+  return task;
+}
+
+function cancelTasks(world: World, assigneeId: string, include: (task: MoveTask) => boolean): void {
+  for (const task of world.tasks.values()) {
+    if (task.assigneeId !== assigneeId || !include(task)) continue;
+    if (!OPEN_STATES.has(task.state)) continue;
+    transition(task, 'cancelled');
+    task.suspendedByTaskId = undefined;
+  }
+}
+
+function candidateTiles(world: World, goal: Tile): Tile[] {
+  const tiles: Tile[] = [];
+  for (let y = 0; y < world.height; y += 1) {
+    for (let x = 0; x < world.width; x += 1) {
+      const tile = { x, y };
+      if (!isWalkable(world.width, world.height, world.blocked, tile)) continue;
+      tiles.push(tile);
+    }
+  }
+
+  tiles.sort((a, b) => {
+    const clickedA = a.x === goal.x && a.y === goal.y ? 0 : 1;
+    const clickedB = b.x === goal.x && b.y === goal.y ? 0 : 1;
+    if (clickedA !== clickedB) return clickedA - clickedB;
+    const distance = manhattan(a, goal) - manhattan(b, goal);
+    if (distance !== 0) return distance;
+    if (a.y !== b.y) return a.y - b.y;
+    return a.x - b.x;
+  });
+
+  return tiles.slice(0, STAGING_CANDIDATES);
+}
+
+function clearRoute(entity: Entity): void {
+  if (!entity.movement) return;
+  entity.movement.path = [];
+  entity.movement.destination = null;
+}
+
+function nextIdentifier(world: World, prefix: string): string {
+  const id = `${prefix}-${world.nextId}`;
+  world.nextId += 1;
+  return id;
+}
