@@ -147,6 +147,38 @@ export const hydrantDefinitionSchema = z.object({
 
 export type HydrantDefinition = z.infer<typeof hydrantDefinitionSchema>;
 
+export const discoveryDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  position: tileSchema,
+});
+
+export const roomDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  tiles: z.array(tileSchema).min(1),
+  entrance: tileSchema,
+  searchTiles: z.array(tileSchema).min(1),
+  discoveries: z.array(discoveryDefinitionSchema).default([]),
+});
+
+export const floorDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  entranceDoorId: z.string().min(1),
+  entry: tileSchema,
+  walls: z.array(tileSchema).default([]),
+  rooms: z.array(roomDefinitionSchema).min(1),
+});
+
+export const buildingDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  floor: floorDefinitionSchema,
+});
+
+export type BuildingDefinition = z.infer<typeof buildingDefinitionSchema>;
+
 export const incidentDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -175,6 +207,7 @@ export const scenarioSchema = z.object({
   fires: z.array(fireDefinitionSchema).default([]),
   hydrants: z.array(hydrantDefinitionSchema).default([]),
   incidents: z.array(incidentDefinitionSchema).default([]),
+  buildings: z.array(buildingDefinitionSchema).default([]),
 });
 
 export type Scenario = z.infer<typeof scenarioSchema>;

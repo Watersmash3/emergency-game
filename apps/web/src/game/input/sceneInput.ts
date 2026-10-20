@@ -11,7 +11,7 @@ import {
 } from './selection.ts';
 
 export interface SceneHit {
-  kind: 'responder' | 'object' | 'vehicle' | 'fire' | 'hydrant' | 'hose';
+  kind: 'responder' | 'object' | 'vehicle' | 'fire' | 'hydrant' | 'hose' | 'room';
   id: string;
 }
 
@@ -53,6 +53,7 @@ export function bindSceneInput(
       const queue = shiftKey(pointer);
       if (hit?.kind === 'fire') issueFire(hit.id);
       else if (hit?.kind === 'hydrant') issueHydrant(hit.id);
+      else if (hit?.kind === 'room') issueRoom(hit.id, queue);
       else if (hit?.kind === 'object') issueInteraction(hit.id, queue);
       else if (hit?.kind === 'vehicle') issueVehicle(hit.id, queue);
       else issueMove(screenToTile(world.x, world.y), queue);
@@ -109,6 +110,7 @@ export function bindSceneInput(
     if (hit?.kind === 'fire') store.selectFire(hit.id);
     else if (hit?.kind === 'hydrant') store.selectHydrant(hit.id);
     else if (hit?.kind === 'hose') store.selectHose(hit.id);
+    else if (hit?.kind === 'room') store.setFocusRoom(hit.id);
     else if (hit?.kind === 'object') store.selectObject(hit.id);
     else if (hit?.kind === 'vehicle') store.selectVehicle(hit.id);
     else if (hit?.kind === 'responder') store.selectResponders([hit.id], active.additive, active.additive);
@@ -173,6 +175,19 @@ function issueFire(fireId: string): void {
   useGameStore.getState().selectFire(fireId);
 }
 
+function issueRoom(roomId: string, queue: boolean): void {
+  const { selection, snapshot } = useGameStore.getState();
+  useGameStore.getState().setFocusRoom(roomId);
+  if (selection?.kind === 'team' && snapshot) {
+    const buildingId = snapshot.rooms.find((room) => room.id === roomId)?.buildingId;
+    if (buildingId) sendCommand({ type: 'search-building', teamId: selection.id, buildingId });
+    return;
+  }
+  const responderId = soleResponder(selection);
+  if (!responderId) return;
+  deliver({ type: 'search-room', responderId, roomId }, queue);
+}
+
 function issueInteraction(objectId: string, queue: boolean): void {
   const { selection, snapshot } = useGameStore.getState();
   const object = snapshot?.objects.find((candidate) => candidate.id === objectId);
@@ -189,7 +204,10 @@ export function commandFor(selection: Selection, object: ObjectSnapshot): Comman
   const responderId = soleResponder(selection);
   if (!responderId) return null;
   if (object.objectType === 'door') {
-    return { type: 'force-door', responderId, doorId: object.id };
+    if (object.state === 'locked') return { type: 'force-door', responderId, doorId: object.id };
+    if (object.state === 'closed') return { type: 'open-door', responderId, doorId: object.id };
+    if (object.state === 'open') return { type: 'close-door', responderId, doorId: object.id };
+    return null;
   }
   if (object.objectType === 'panel') {
     return { type: 'operate-panel', responderId, panelId: object.id };

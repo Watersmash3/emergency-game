@@ -3,7 +3,8 @@ import type { Tile } from '@emergency/protocol';
 import type { EquipmentInstance } from '../components/equipment.ts';
 import type { World } from '../core/world.ts';
 import type { Entity } from '../entities/Entity.ts';
-import { tileKey, tileOf } from '../navigation/grid.ts';
+import { tileOf } from '../navigation/grid.ts';
+import { advanceBuildingTask, registerForceDoor, setDoorState } from './building.ts';
 import {
   FORCE_CAPABILITY,
   cancelTask,
@@ -149,6 +150,12 @@ export function stepTasks(world: World): void {
       case 'establish-fire-attack':
         if (isRunningWater(task)) advanceWaterTask(world, task);
         break;
+      case 'open-door':
+      case 'close-door':
+      case 'search-room':
+      case 'search-building':
+        advanceBuildingTask(world, task);
+        break;
       default: {
         const unreachable: never = task;
         return unreachable;
@@ -188,6 +195,7 @@ function forceDoor(world: World, responderId: string, doorId: string): CommandRe
     return { ok: false, reason: CommandRejection.UnknownObject };
   }
   if (door.interactable.state !== 'locked') return { ok: false, reason: CommandRejection.DoorOpen };
+  if (world.reservedDoors.has(doorId)) return { ok: false, reason: CommandRejection.Reserved };
 
   const approach = nearestApproach(
     world,
@@ -219,6 +227,7 @@ function forceDoor(world: World, responderId: string, doorId: string): CommandRe
   transition(task, 'ready');
   transition(task, 'running');
   world.tasks.set(task.id, task);
+  world.reservedDoors.set(doorId, task.id);
   overrideWith(world, responderId, task.id);
 
   if (hasTool) {
@@ -559,7 +568,7 @@ function advanceForce(world: World, task: ForceDoorTask): void {
       spawnInteract(world, task, 'force', FORCE_TICKS);
       return;
     }
-    openDoor(world, door);
+    setDoorState(world, door, 'forced');
     completeTask(world, task);
     return;
   }
@@ -644,12 +653,6 @@ function resumeAcquire(world: World, task: ForceDoorTask): void {
   task.step = 'acquire';
 }
 
-function openDoor(world: World, door: Entity): void {
-  if (!door.interactable || !door.position) return;
-  door.interactable.state = 'open';
-  world.blocked.delete(tileKey(tileOf(door.position)));
-}
-
 function viewChild(
   world: World,
   task: ParentTask,
@@ -671,6 +674,8 @@ function cancelOpenRoots(world: World, assigneeId: string): void {
     cancelTask(world, task);
   }
 }
+
+registerForceDoor(forceDoor);
 
 function depth(world: World, task: Task): number {
   let level = 0;

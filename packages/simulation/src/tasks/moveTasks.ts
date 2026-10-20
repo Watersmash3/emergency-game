@@ -3,6 +3,7 @@ import type { Command, Tile } from '@emergency/protocol';
 import type { World } from '../core/world.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { inBounds, isBlocked, isWalkable, manhattan, tileOf } from '../navigation/grid.ts';
+import { applyBuildingCommand } from './building.ts';
 import { applyInteractionCommand } from './interactions.ts';
 import { cancelTask, clearRoute, isOpen, nextIdentifier, overrideWith } from './lifecycle.ts';
 import { noteOrderRejected, noteUnreachable } from './notices.ts';
@@ -103,6 +104,12 @@ function dispatchCommand(world: World, command: Command): CommandResult {
     case 'disconnect-attack':
     case 'establish-fire-attack':
       return applyWaterCommand(world, command);
+    case 'open-door':
+    case 'close-door':
+    case 'enter-building':
+    case 'search-room':
+    case 'search-building':
+      return applyBuildingCommand(world, command);
     case 'move-group':
       return moveGroup(world, command.responderIds, command.destination);
     case 'enqueue':
@@ -124,6 +131,7 @@ function queueAssignees(world: World, command: Command): string[] {
     case 'respond-to':
     case 'suppress-incident':
     case 'establish-fire-attack':
+    case 'search-building':
       return [...world.team.memberIds];
     case 'move-group':
       return [...command.responderIds];

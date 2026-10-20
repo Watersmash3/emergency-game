@@ -22,6 +22,8 @@ import { stepMovement } from '../systems/movementSystem.ts';
 import { stepVehicles, syncOccupants } from '../systems/vehicleSystem.ts';
 import { evaluateIncidents } from '../tasks/fireRules.ts';
 import { stepTasks } from '../tasks/interactions.ts';
+import { loadBuildings, revealRooms } from '../tasks/building.ts';
+import { doorPassable } from '../components/building.ts';
 import { computeInteractionTiles } from '../tasks/lifecycle.ts';
 import { scanStatus, seedStatus } from '../tasks/notices.ts';
 import { orderLabel } from '../tasks/orders.ts';
@@ -74,6 +76,7 @@ export class Simulation {
     stepWater(this.world);
     stepFire(this.world);
     stepTasks(this.world);
+    revealRooms(this.world);
     evaluateIncidents(this.world);
     syncOccupants(this.world);
     promoteQueued(this.world);
@@ -146,7 +149,7 @@ function createWorld(scenarioInput: Scenario): World {
     if (!inBounds(scenario.width, scenario.height, object.position)) {
       throw new Error(`Object ${object.id} is outside the map`);
     }
-    if (object.objectType === 'door' && object.state === 'locked')
+    if (object.objectType === 'door' && !doorPassable(object.state))
       blocked.add(tileKey(object.position));
   }
 
@@ -370,6 +373,9 @@ function createWorld(scenarioInput: Scenario): World {
     }
   }
 
+  const structure = loadBuildings(scenario);
+  for (const wall of structure.walls) blocked.add(tileKey(wall));
+
   return {
     scenarioId: scenario.id,
     seed: scenario.seed,
@@ -403,6 +409,12 @@ function createWorld(scenarioInput: Scenario): World {
     notices: [],
     statusStamp: new Map(),
     noticeLatch: new Set(),
+    buildings: structure.buildings,
+    floors: structure.floors,
+    rooms: structure.rooms,
+    doorLinks: structure.doorLinks,
+    reservedDoors: new Map(),
+    routeEpoch: 0,
   };
 }
 
@@ -564,6 +576,40 @@ function snapshotOf(world: World): SimulationSnapshot {
       message: notice.message,
       tone: notice.tone,
     })),
+    buildings: [...world.buildings.values()]
+      .sort((left, right) => (left.id < right.id ? -1 : 1))
+      .map((building) => {
+        const floor = world.floors.get(building.floorId);
+        return {
+          id: building.id,
+          name: building.name,
+          floorId: building.floorId,
+          entry: floor ? { ...floor.entry } : { x: 0, y: 0 },
+          entranceDoorId: floor?.entranceDoorId ?? '',
+          rooms: [...world.rooms.values()]
+            .filter((room) => room.buildingId === building.id)
+            .map((room) => room.id)
+            .sort(),
+        };
+      }),
+    rooms: [...world.rooms.values()]
+      .sort((left, right) => (left.id < right.id ? -1 : 1))
+      .map((room) => ({
+        id: room.id,
+        buildingId: room.buildingId,
+        floorId: room.floorId,
+        name: room.name,
+        tiles: room.tiles.map((tile) => ({ ...tile })),
+        entrance: { ...room.entrance },
+        state: room.state,
+        discovered: room.discovered,
+        assigneeId: room.assigneeId,
+        discoveries: room.discoveries.map((discovery) => ({
+          id: discovery.id,
+          name: discovery.name,
+          found: discovery.found,
+        })),
+      })),
   };
 }
 
@@ -747,6 +793,18 @@ function snapshotTask(world: World, task: Task): TaskSnapshot {
       targetId: task.targetId,
       destinationNodeId: task.destinationNodeId,
       disembark: task.disembark,
+      ...progress,
+    };
+  }
+  if (task.kind === 'open-door' || task.kind === 'close-door' || task.kind === 'search-building') {
+    return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
+  }
+  if (task.kind === 'search-room') {
+    return {
+      ...common,
+      kind: 'search-room',
+      targetId: task.targetId,
+      searchIndex: task.searchIndex,
       ...progress,
     };
   }

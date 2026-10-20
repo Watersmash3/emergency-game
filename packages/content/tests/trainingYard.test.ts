@@ -13,6 +13,7 @@ describe('training yard', () => {
       'locker',
       'door',
       'panel',
+      'door',
     ]);
     expect(trainingYard.equipment).toHaveLength(8);
     expect(trainingYard.hydrants.map((hydrant) => hydrant.id)).toEqual(['hydrant-staging']);

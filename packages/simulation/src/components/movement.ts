@@ -4,4 +4,5 @@ export interface Movement {
   speed: number;
   path: Vec2[];
   destination: Tile | null;
+  routeEpoch?: number;
 }

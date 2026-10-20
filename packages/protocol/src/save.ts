@@ -116,6 +116,27 @@ export const saveTaskSchema = z.discriminatedUnion('kind', [
   waterSave('establish-fire-attack'),
   z.object({
     ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal('open-door'),
+  }),
+  z.object({
+    ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal('close-door'),
+  }),
+  z.object({
+    ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal('search-room'),
+    searchIndex: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal('search-building'),
+  }),
+  z.object({
+    ...saveTaskCommon,
     kind: z.literal('interact'),
     targetId: z.string().min(1),
     action: z.enum(['take', 'force', 'operate', 'board', 'exit']),
@@ -321,6 +342,60 @@ export const saveDocumentSchema = z.object({
         key: z.string().min(1),
         message: z.string().min(1),
         tone: z.enum(['info', 'warning', 'good']),
+      }),
+    )
+    .default([]),
+  buildings: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        floorId: z.string().min(1),
+      }),
+    )
+    .default([]),
+  floors: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        buildingId: z.string().min(1),
+        name: z.string().min(1),
+        entranceDoorId: z.string().min(1),
+        entry: tileSchema,
+        walls: z.array(tileSchema),
+      }),
+    )
+    .default([]),
+  rooms: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        buildingId: z.string().min(1),
+        floorId: z.string().min(1),
+        name: z.string().min(1),
+        tiles: z.array(tileSchema),
+        entrance: tileSchema,
+        searchTiles: z.array(tileSchema),
+        state: z.enum(['unsearched', 'searching', 'searched', 'blocked']),
+        discovered: z.boolean(),
+        assigneeId: z.string().min(1).nullable(),
+        reservedByTaskId: z.string().min(1).nullable(),
+        discoveries: z.array(
+          z.object({
+            id: z.string().min(1),
+            name: z.string().min(1),
+            position: tileSchema,
+            found: z.boolean(),
+          }),
+        ),
+      }),
+    )
+    .default([]),
+  reservedDoors: z
+    .array(
+      z.object({
+        doorId: z.string().min(1),
+        taskId: z.string().min(1),
       }),
     )
     .default([]),

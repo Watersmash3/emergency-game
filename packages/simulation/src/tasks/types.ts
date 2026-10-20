@@ -102,6 +102,23 @@ export interface WaterTask extends ActivityTask {
   role?: 'supply' | 'pump' | 'attack';
 }
 
+export interface SearchRoomTask extends ActivityTask {
+  kind: 'search-room';
+  searchIndex: number;
+}
+
+export interface SearchBuildingTask extends ActivityTask {
+  kind: 'search-building';
+}
+
+export interface OpenDoorTask extends ActivityTask {
+  kind: 'open-door';
+}
+
+export interface CloseDoorTask extends ActivityTask {
+  kind: 'close-door';
+}
+
 export type ParentTask =
   | RetrieveEquipmentTask
   | ForceDoorTask
@@ -112,7 +129,11 @@ export type ParentTask =
   | RespondTask
   | SuppressFireTask
   | SuppressIncidentTask
-  | WaterTask;
+  | WaterTask
+  | SearchRoomTask
+  | SearchBuildingTask
+  | OpenDoorTask
+  | CloseDoorTask;
 
 export type Task = MoveTask | ParentTask | InteractTask;
 
@@ -155,6 +176,10 @@ export function isParentTask(task: Task): task is ParentTask {
     task.kind === 'operate-nozzle' ||
     task.kind === 'reposition-nozzle' ||
     task.kind === 'disconnect-attack' ||
-    task.kind === 'establish-fire-attack'
+    task.kind === 'establish-fire-attack' ||
+    task.kind === 'open-door' ||
+    task.kind === 'close-door' ||
+    task.kind === 'search-room' ||
+    task.kind === 'search-building'
   );
 }

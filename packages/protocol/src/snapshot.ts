@@ -138,6 +138,39 @@ export const taskSnapshotSchema = z.discriminatedUnion('kind', [
   waterSnapshot('establish-fire-attack'),
   z.object({
     ...taskCommonSchema,
+    kind: z.literal('open-door'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
+    kind: z.literal('close-door'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
+    kind: z.literal('search-room'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    searchIndex: z.number().int().nonnegative(),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
+    kind: z.literal('search-building'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
     kind: z.literal('interact'),
     targetId: z.string().min(1),
     action: z.enum(['take', 'force', 'operate', 'board', 'exit']),
@@ -305,6 +338,38 @@ export const noticeSnapshotSchema = z.object({
 
 export type NoticeSnapshot = z.infer<typeof noticeSnapshotSchema>;
 
+export const roomSnapshotSchema = z.object({
+  id: z.string().min(1),
+  buildingId: z.string().min(1),
+  floorId: z.string().min(1),
+  name: z.string().min(1),
+  tiles: z.array(tileSchema),
+  entrance: tileSchema,
+  state: z.enum(['unsearched', 'searching', 'searched', 'blocked']),
+  discovered: z.boolean(),
+  assigneeId: z.string().min(1).nullable(),
+  discoveries: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      found: z.boolean(),
+    }),
+  ),
+});
+
+export type RoomSnapshot = z.infer<typeof roomSnapshotSchema>;
+
+export const buildingSnapshotSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  floorId: z.string().min(1),
+  entry: tileSchema,
+  entranceDoorId: z.string().min(1),
+  rooms: z.array(z.string().min(1)),
+});
+
+export type BuildingSnapshot = z.infer<typeof buildingSnapshotSchema>;
+
 export const simulationSnapshotSchema = z.object({
   scenarioId: z.string().min(1),
   seed: z.number().int(),
@@ -329,6 +394,8 @@ export const simulationSnapshotSchema = z.object({
   incidents: z.array(incidentSnapshotSchema),
   orders: z.array(orderSnapshotSchema),
   notices: z.array(noticeSnapshotSchema),
+  buildings: z.array(buildingSnapshotSchema),
+  rooms: z.array(roomSnapshotSchema),
 });
 
 export type SimulationSnapshot = z.infer<typeof simulationSnapshotSchema>;

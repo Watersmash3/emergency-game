@@ -155,7 +155,7 @@ describe('interactions and equipment', () => {
     });
     until(
       sim,
-      () => sim.getSnapshot().objects.find((object) => object.id === 'door')?.state === 'open',
+      () => sim.getSnapshot().objects.find((object) => object.id === 'door')?.state === 'forced',
     );
     expect(sim.getSnapshot().blocked.some((tile) => tile.x === 6 && tile.y === 0)).toBe(false);
     expect(sim.getSnapshot().tasks.find((task) => task.kind === 'force-door')?.state).toBe(
@@ -170,7 +170,7 @@ describe('interactions and equipment', () => {
     });
     until(
       sim,
-      () => sim.getSnapshot().objects.find((object) => object.id === 'door')?.state === 'open',
+      () => sim.getSnapshot().objects.find((object) => object.id === 'door')?.state === 'forced',
     );
     expect(entityAt(sim, 'a').inventory.some((item) => item.definitionId === 'halligan')).toBe(
       true,

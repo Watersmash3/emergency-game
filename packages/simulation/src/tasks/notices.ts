@@ -110,6 +110,22 @@ export function noteOrderRejected(world: World, orderId: string, assigneeId: str
   );
 }
 
+export function noteRoomSearched(world: World, responderId: string, roomName: string, found: string[]): void {
+  const who = person(world, responderId);
+  const detail = found.length > 0 ? ` Found ${found.join(', ')}.` : '';
+  emitNotice(world, `search:${roomName}`, `${who} searched ${roomName}.${detail}`, 'good');
+}
+
+export function noteBuildingBlocked(world: World, buildingId: string): void {
+  const building = world.buildings.get(buildingId);
+  emitNotice(
+    world,
+    `building-blocked:${buildingId}`,
+    `${building?.name ?? 'Building'} has rooms that cannot be reached.`,
+    'warning',
+  );
+}
+
 function person(world: World, id: string): string {
   const entity = world.entities.get(id);
   return entity?.responder?.name ?? entity?.vehicle?.name ?? id;

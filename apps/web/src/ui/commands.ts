@@ -13,14 +13,22 @@ export interface CommandAction {
   commands: Command[];
 }
 
-export function commandActions(snapshot: SimulationSnapshot, selection: Selection): CommandAction[] {
-  if (selection?.kind === 'responders') return responderActions(snapshot, selection.ids);
+export function commandActions(
+  snapshot: SimulationSnapshot,
+  selection: Selection,
+  focusRoomId: string | null = null,
+): CommandAction[] {
+  if (selection?.kind === 'responders') return responderActions(snapshot, selection.ids, focusRoomId);
   if (selection?.kind === 'team') return teamActions(snapshot, selection.id);
   if (selection?.kind === 'vehicle') return vehicleActions(snapshot, selection.id);
   return [];
 }
 
-function responderActions(snapshot: SimulationSnapshot, ids: string[]): CommandAction[] {
+function responderActions(
+  snapshot: SimulationSnapshot,
+  ids: string[],
+  focusRoomId: string | null,
+): CommandAction[] {
   const members = ids
     .map((id) => snapshot.entities.find((entity) => entity.id === id))
     .filter((entity) => entity !== undefined);
@@ -185,11 +193,12 @@ function responderActions(snapshot: SimulationSnapshot, ids: string[]): CommandA
   }
 
   for (const object of snapshot.objects) {
+    if (object.objectType === 'door') continue;
     const command = objectCommand(snapshot, ids, object.id);
     if (!command) continue;
     actions.push({
       id: `object-${object.id}`,
-      label: objectLabel(object.objectType, object.name),
+      label: objectLabel(object.objectType, object.name, object.state),
       group: object.objectType === 'locker' ? 'equipment' : 'incident',
       enabled: true,
       title: 'Hold Shift to queue this interaction',
@@ -199,6 +208,7 @@ function responderActions(snapshot: SimulationSnapshot, ids: string[]): CommandA
 
   pushCancel(actions, snapshot, ids);
   pushClear(actions, snapshot, ids);
+  if (one && !one.aboardVehicleId) pushBuildingActions(actions, snapshot, one.id, focusRoomId);
   return dedupe(actions);
 }
 
@@ -267,6 +277,16 @@ function teamActions(snapshot: SimulationSnapshot, teamId: string): CommandActio
       commands: [{ type: 'suppress-incident', teamId, incidentId: incident.id }],
     });
   }
+  for (const building of snapshot.buildings) {
+    actions.push({
+      id: `search-${building.id}`,
+      label: `Search ${building.name}`,
+      group: 'incident',
+      enabled: true,
+      title: 'Divide reachable rooms across available firefighters',
+      commands: [{ type: 'search-building', teamId, buildingId: building.id }],
+    });
+  }
   const locker = snapshot.objects.find((object) => object.objectType === 'locker');
   if (locker) {
     actions.push({
@@ -330,9 +350,10 @@ function objectCommand(
     };
   }
   if (object.objectType === 'door') {
-    return object.state === 'open'
-      ? null
-      : { type: 'force-door', responderId, doorId: object.id };
+    if (object.state === 'locked') return { type: 'force-door', responderId, doorId: object.id };
+    if (object.state === 'closed') return { type: 'open-door', responderId, doorId: object.id };
+    if (object.state === 'open') return { type: 'close-door', responderId, doorId: object.id };
+    return null;
   }
   if (object.objectType === 'panel') {
     return object.state === 'operated'
@@ -342,7 +363,68 @@ function objectCommand(
   return null;
 }
 
-function objectLabel(objectType: string, name: string): string {
+function pushBuildingActions(
+  actions: CommandAction[],
+  snapshot: SimulationSnapshot,
+  responderId: string,
+  focusRoomId: string | null,
+): void {
+  for (const building of snapshot.buildings) {
+    actions.push({
+      id: `enter-${building.id}`,
+      label: `Enter ${building.name}`,
+      group: 'movement',
+      enabled: true,
+      title: 'Move through the entrance. Open or force the door first.',
+      commands: [{ type: 'enter-building', responderId, buildingId: building.id }],
+    });
+  }
+  const room = snapshot.rooms.find((candidate) => candidate.id === focusRoomId);
+  if (room && room.state !== 'searched') {
+    actions.push({
+      id: `search-${room.id}`,
+      label: `Search ${room.name}`,
+      group: 'incident',
+      enabled: true,
+      title: 'Search the selected room',
+      commands: [{ type: 'search-room', responderId, roomId: room.id }],
+    });
+  }
+  for (const door of snapshot.objects.filter((object) => object.objectType === 'door')) {
+    if (door.state === 'locked') {
+      actions.push({
+        id: `force-${door.id}`,
+        label: `Force ${door.name}`,
+        group: 'incident',
+        enabled: true,
+        title: 'Requires a Halligan',
+        commands: [{ type: 'force-door', responderId, doorId: door.id }],
+      });
+    } else if (door.state === 'closed') {
+      actions.push({
+        id: `open-${door.id}`,
+        label: `Open ${door.name}`,
+        group: 'incident',
+        enabled: true,
+        title: 'Open a closed door',
+        commands: [{ type: 'open-door', responderId, doorId: door.id }],
+      });
+    } else if (door.state === 'open') {
+      actions.push({
+        id: `close-${door.id}`,
+        label: `Close ${door.name}`,
+        group: 'incident',
+        enabled: true,
+        title: 'Close an open door',
+        commands: [{ type: 'close-door', responderId, doorId: door.id }],
+      });
+    }
+  }
+}
+
+function objectLabel(objectType: string, name: string, state = ''): string {
+  if (objectType === 'door' && state === 'closed') return 'Open door';
+  if (objectType === 'door' && state === 'open') return 'Close door';
   if (objectType === 'door') return 'Force door';
   if (objectType === 'panel') return 'Operate panel';
   return name;

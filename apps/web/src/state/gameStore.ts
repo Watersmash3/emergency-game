@@ -2,6 +2,7 @@ import type { Command, SimulationSnapshot, WorkerOutbound } from '@emergency/pro
 import { create } from 'zustand';
 
 import { mergeIds, type Selection } from '../game/input/selection.ts';
+import type { RoofMode } from '../game/rendering/interior.ts';
 
 export type { Selection };
 
@@ -29,6 +30,8 @@ interface GameState {
   rosterOpen: boolean;
   detailOpen: boolean;
   commandMode: 'move' | null;
+  roofMode: RoofMode;
+  focusRoomId: string | null;
   cameraMode: CameraMode;
   cameraToken: number;
   layoutToken: number;
@@ -51,6 +54,8 @@ interface GameState {
   toggleRoster: () => void;
   toggleDetail: () => void;
   setCommandMode: (mode: 'move' | null) => void;
+  setRoofMode: (mode: RoofMode) => void;
+  setFocusRoom: (roomId: string | null) => void;
   reset: () => void;
 }
 
@@ -70,6 +75,8 @@ const initial = {
   rosterOpen: true,
   detailOpen: true,
   commandMode: null as 'move' | null,
+  roofMode: 'auto' as RoofMode,
+  focusRoomId: null as string | null,
   cameraMode: 'fit' as CameraMode,
   cameraToken: 0,
   layoutToken: 0,
@@ -114,7 +121,7 @@ export const useGameStore = create<GameState>((set) => ({
   selectFire: (id) => set({ selection: { kind: 'fire', id }, commandMode: null }),
   selectHydrant: (id) => set({ selection: { kind: 'hydrant', id }, commandMode: null }),
   selectHose: (id) => set({ selection: { kind: 'hose', id }, commandMode: null }),
-  clearSelection: () => set({ selection: null, commandMode: null }),
+  clearSelection: () => set({ selection: null, commandMode: null, focusRoomId: null }),
   requestCamera: (mode) =>
     set((state) => ({
       cameraMode: mode,
@@ -130,6 +137,8 @@ export const useGameStore = create<GameState>((set) => ({
   toggleDetail: () =>
     set((state) => ({ detailOpen: !state.detailOpen, layoutToken: state.layoutToken + 1 })),
   setCommandMode: (commandMode) => set({ commandMode }),
+  setRoofMode: (roofMode) => set({ roofMode }),
+  setFocusRoom: (focusRoomId) => set({ focusRoomId }),
   setSaveNotice: (saveNotice) => set({ saveNotice }),
   bumpSaves: () => set((state) => ({ savesRevision: state.savesRevision + 1 })),
   reset: () => set(initial),

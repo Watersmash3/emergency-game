@@ -56,6 +56,62 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       position: { x: 7, y: 4 },
       state: 'idle',
     },
+    {
+      id: 'door-interior',
+      name: 'Interior door',
+      objectType: 'door',
+      position: { x: 10, y: 10 },
+      state: 'closed',
+    },
+  ],
+  buildings: [
+    {
+      id: 'building-training',
+      name: 'Training building',
+      floor: {
+        id: 'floor-training',
+        name: 'Ground floor',
+        entranceDoorId: 'door-training',
+        entry: { x: 10, y: 11 },
+        walls: [
+          { x: 9, y: 10 },
+          { x: 11, y: 10 },
+        ],
+        rooms: [
+          {
+            id: 'room-south',
+            name: 'Entry room',
+            tiles: [
+              { x: 9, y: 11 },
+              { x: 10, y: 11 },
+              { x: 11, y: 11 },
+            ],
+            entrance: { x: 10, y: 11 },
+            searchTiles: [
+              { x: 9, y: 11 },
+              { x: 11, y: 11 },
+            ],
+          },
+          {
+            id: 'room-north',
+            name: 'North room',
+            tiles: [
+              { x: 9, y: 9 },
+              { x: 10, y: 9 },
+              { x: 11, y: 9 },
+            ],
+            entrance: { x: 10, y: 9 },
+            searchTiles: [
+              { x: 9, y: 9 },
+              { x: 11, y: 9 },
+            ],
+            discoveries: [
+              { id: 'find-dummy', name: 'Training dummy', position: { x: 9, y: 9 } },
+            ],
+          },
+        ],
+      },
+    },
   ],
   equipmentCatalog: [
     { id: 'halligan', name: 'Halligan tool', capabilities: ['force-entry'] },

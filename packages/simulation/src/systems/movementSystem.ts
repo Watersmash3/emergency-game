@@ -62,8 +62,14 @@ export function runningMoveTask(world: World, assigneeId: string): MoveTask | un
 
 function ensurePath(world: World, entity: Entity, task: MoveTask): void {
   if (!entity.position || !entity.movement) return;
-  if (entity.movement.destination && sameTile(entity.movement.destination, task.destination))
+  const current = entity.movement.routeEpoch ?? 0;
+  if (
+    entity.movement.destination &&
+    current === world.routeEpoch &&
+    sameTile(entity.movement.destination, task.destination)
+  ) {
     return;
+  }
 
   const path = findPath(world, tileOf(entity.position), task.destination);
   if (!path) {
@@ -75,6 +81,7 @@ function ensurePath(world: World, entity: Entity, task: MoveTask): void {
   }
 
   entity.movement.destination = { ...task.destination };
+  entity.movement.routeEpoch = world.routeEpoch;
   entity.movement.path = toWaypoints(path, entity.position);
 }
 

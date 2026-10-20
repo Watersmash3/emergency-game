@@ -8,6 +8,7 @@ import { isWalkable, tileOf } from '../navigation/grid.ts';
 import { CommandRejection } from './results.ts';
 import { transition } from './transitions.ts';
 import { invalidSuppressReason } from './fireRules.ts';
+import { releaseStructure } from './building.ts';
 import { noteTaskComplete, noteTaskFailure } from './notices.ts';
 import { cleanupWaterTask } from './waterRules.ts';
 import { parkVehicle, releaseTransport, vehicleInvalidReason } from './vehicleRules.ts';
@@ -160,6 +161,7 @@ export function cancelTask(world: World, task: Task): void {
   closeDescendants(world, root.id, true);
   noteCancellation(root);
   cleanupWaterTask(world, root);
+  releaseStructure(world, root);
   if (root.kind === 'drive-vehicle' || root.kind === 'respond') parkVehicle(world, root.assigneeId);
   transition(root, 'cancelled');
   root.suspendedByTaskId = undefined;
@@ -175,6 +177,7 @@ export function abandonTask(world: World, task: Task): void {
   closeDescendants(world, task.id, true);
   noteCancellation(task);
   cleanupWaterTask(world, task);
+  releaseStructure(world, task);
   transition(task, 'cancelled');
   task.suspendedByTaskId = undefined;
   releaseReservations(world, task);
@@ -193,6 +196,7 @@ export function failTask(world: World, task: Task, reason: string): void {
   transition(task, 'failed');
   task.failureReason = reason;
   noteTaskFailure(world, task, reason);
+  releaseStructure(world, task);
   task.suspendedByTaskId = undefined;
   releaseReservations(world, task);
   releaseTransport(world, task.id);
@@ -206,6 +210,7 @@ export function completeTask(world: World, task: Task): void {
   if (task.state !== 'running') return;
   transition(task, 'completed');
   noteTaskComplete(world, task);
+  releaseStructure(world, task);
   releaseReservations(world, task);
   releaseTransport(world, task.id);
   if (isParentTask(task)) task.childTaskId = undefined;
@@ -333,7 +338,7 @@ export function tryResume(world: World, completedTaskId: string): void {
 }
 
 function invalidReason(world: World, task: Task): string | null {
-  if (task.kind === 'establish-fire-attack') return null;
+  if (task.kind === 'establish-fire-attack' || task.kind === 'search-building') return null;
   const entity = world.entities.get(task.assigneeId);
   if (!entity?.position) return CommandRejection.UnknownResponder;
   const from = tileOf(entity.position);
@@ -368,6 +373,10 @@ function invalidReason(world: World, task: Task): string | null {
     case 'operate-nozzle':
     case 'reposition-nozzle':
     case 'disconnect-attack':
+      return null;
+    case 'open-door':
+    case 'close-door':
+    case 'search-room':
       return null;
     default: {
       if (isWaterTask(task)) return null;
@@ -471,6 +480,7 @@ function closeDescendants(world: World, rootId: string, release: boolean): void 
     else transferReservations(world, child, root);
     releaseTransport(world, child.id);
     cleanupWaterTask(world, child);
+    releaseStructure(world, child);
     if (child.kind === 'drive-vehicle') parkVehicle(world, child.assigneeId);
     noteCancellation(child);
     transition(child, 'cancelled');

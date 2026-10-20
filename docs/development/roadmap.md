@@ -25,6 +25,9 @@
 - Drag-box group selection and `move-group` for a temporary selection
 - Shift-queued individual orders for movement and a limited set of interactions
 - Simulation notices for arrivals, pump state, failures, and extinguished fires
+- Single-floor building interiors with doors, room search, and team building search
+- Modular 2.5D walls, room floors, doors, and a roof cutaway assembled from the building layout
+- Roof visibility that follows a selected responder inside a building, or a manual open and closed setting
 
 ## Next milestone
 

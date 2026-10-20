@@ -8,6 +8,7 @@ import {
   type SaveTask,
 } from '@emergency/protocol';
 
+import { doorPassable } from '../components/building.ts';
 import type { EquipmentInstance } from '../components/equipment.ts';
 import type { World } from '../core/world.ts';
 import { createRng } from '../core/rng.ts';
@@ -104,6 +105,39 @@ export function exportWorld(world: World): SaveDocument {
       message: notice.message,
       tone: notice.tone,
     })),
+    buildings: [...world.buildings.values()].map((building) => ({
+      id: building.id,
+      name: building.name,
+      floorId: building.floorId,
+    })),
+    floors: [...world.floors.values()].map((floor) => ({
+      id: floor.id,
+      buildingId: floor.buildingId,
+      name: floor.name,
+      entranceDoorId: floor.entranceDoorId,
+      entry: { ...floor.entry },
+      walls: floor.walls.map((tile) => ({ ...tile })),
+    })),
+    rooms: [...world.rooms.values()].map((room) => ({
+      id: room.id,
+      buildingId: room.buildingId,
+      floorId: room.floorId,
+      name: room.name,
+      tiles: room.tiles.map((tile) => ({ ...tile })),
+      entrance: { ...room.entrance },
+      searchTiles: room.searchTiles.map((tile) => ({ ...tile })),
+      state: room.state,
+      discovered: room.discovered,
+      assigneeId: room.assigneeId,
+      reservedByTaskId: room.reservedByTaskId,
+      discoveries: room.discoveries.map((discovery) => ({
+        id: discovery.id,
+        name: discovery.name,
+        position: { ...discovery.position },
+        found: discovery.found,
+      })),
+    })),
+    reservedDoors: [...world.reservedDoors.entries()].map(([doorId, taskId]) => ({ doorId, taskId })),
   });
 }
 
@@ -188,6 +222,43 @@ function worldFromDocument(document: SaveDocument): World {
     notices: document.notices.map((notice) => ({ ...notice })),
     statusStamp: new Map(),
     noticeLatch: new Set(),
+    buildings: new Map(
+      document.buildings.map((building) => [
+        building.id,
+        { id: building.id, name: building.name, floorId: building.floorId },
+      ]),
+    ),
+    floors: new Map(
+      document.floors.map((floor) => [
+        floor.id,
+        {
+          id: floor.id,
+          buildingId: floor.buildingId,
+          name: floor.name,
+          entranceDoorId: floor.entranceDoorId,
+          entry: { ...floor.entry },
+          walls: floor.walls.map((tile) => ({ ...tile })),
+        },
+      ]),
+    ),
+    rooms: new Map(
+      document.rooms.map((room) => [
+        room.id,
+        {
+          ...room,
+          tiles: room.tiles.map((tile) => ({ ...tile })),
+          entrance: { ...room.entrance },
+          searchTiles: room.searchTiles.map((tile) => ({ ...tile })),
+          discoveries: room.discoveries.map((discovery) => ({
+            ...discovery,
+            position: { ...discovery.position },
+          })),
+        },
+      ]),
+    ),
+    doorLinks: new Map(),
+    reservedDoors: new Map(document.reservedDoors.map((entry) => [entry.doorId, entry.taskId])),
+    routeEpoch: 1,
   };
 }
 
@@ -202,6 +273,9 @@ function duplicatedId(document: SaveDocument): string | null {
     ['catalog entry', document.catalog.map((definition) => definition.id)],
     ['order', document.orders.map((order) => order.id)],
     ['notice', document.notices.map((notice) => notice.id)],
+    ['building', document.buildings.map((building) => building.id)],
+    ['floor', document.floors.map((floor) => floor.id)],
+    ['room', document.rooms.map((room) => room.id)],
   ];
   for (const [label, ids] of lists) {
     const seen = new Set<string>();
@@ -257,11 +331,11 @@ function inconsistent(world: World): string | null {
     }
     if (
       entity.interactable?.objectType === 'door' &&
-      entity.interactable.state === 'locked' &&
+      !doorPassable(entity.interactable.state) &&
       entity.position &&
       !world.blocked.has(tileKey(tileOf(entity.position)))
     ) {
-      return fail(`locked door ${entity.id} is not blocked`);
+      return fail(`closed door ${entity.id} is not blocked`);
     }
     const aboard = entity.responder?.aboardVehicleId;
     if (aboard) {
@@ -353,6 +427,9 @@ function inconsistent(world: World): string | null {
     } else if (task.kind === 'suppress-incident' || task.kind === 'establish-fire-attack') {
       if (!world.incidents.has(task.assigneeId))
         return fail(`task ${task.id} is not assigned to an incident`);
+    } else if (task.kind === 'search-building') {
+      if (!world.buildings.has(task.assigneeId))
+        return fail(`task ${task.id} is not assigned to a building`);
     } else if (!world.entities.get(task.assigneeId)?.responder) {
       return fail(`task ${task.id} is not assigned to a responder`);
     }
@@ -736,6 +813,9 @@ function exportTask(task: Task): SaveTask {
       ...waterFields(task),
     };
   }
+  if (task.kind === 'search-room') {
+    return { ...activity, kind: 'search-room', searchIndex: task.searchIndex };
+  }
   return { ...activity, kind: task.kind };
 }
 
@@ -807,6 +887,9 @@ function importTask(task: SaveTask): Task {
       kind: task.kind,
       ...waterFields(task),
     };
+  }
+  if (task.kind === 'search-room') {
+    return { ...activity, kind: 'search-room', searchIndex: task.searchIndex };
   }
   return { ...activity, kind: task.kind };
 }

@@ -7,9 +7,9 @@ export interface SpriteAsset {
 
 export const assets = {
   responder(index: number): SpriteAsset {
-    return { key: `responder-${index % 4}`, originX: 0.5, originY: 0.78 };
+    return { key: `responder-${index % 4}`, originX: 0.5, originY: 0.9 };
   },
-  engine: { key: 'vehicle-engine', originX: 0.5, originY: 0.62 } satisfies SpriteAsset,
+  engine: { key: 'vehicle-engine', originX: 0.5, originY: 0.72 } satisfies SpriteAsset,
   hydrant: { key: 'object-hydrant', originX: 0.5, originY: 0.82 } satisfies SpriteAsset,
   fire: { key: 'fire-live', originX: 0.5, originY: 0.86 } satisfies SpriteAsset,
   fireOut: { key: 'fire-out', originX: 0.5, originY: 0.86 } satisfies SpriteAsset,
@@ -23,10 +23,22 @@ export const assets = {
   },
   road: { key: 'tile-road', originX: 0.5, originY: 0.5 } satisfies SpriteAsset,
   structure: { key: 'tile-structure', originX: 0.5, originY: 0.72 } satisfies SpriteAsset,
+  interior: { key: 'tile-interior', originX: 0.5, originY: 0.5 } satisfies SpriteAsset,
+  interiorAlt: { key: 'tile-interior-alt', originX: 0.5, originY: 0.5 } satisfies SpriteAsset,
+  foundation: { key: 'tile-foundation', originX: 0.5, originY: 0.5 } satisfies SpriteAsset,
+  wallFull: { key: 'wall-full', originX: 0.5, originY: 0.7 } satisfies SpriteAsset,
+  wallLow: { key: 'wall-low', originX: 0.5, originY: 0.7 } satisfies SpriteAsset,
+  rubble: { key: 'prop-rubble', originX: 0.5, originY: 0.82 } satisfies SpriteAsset,
+  shadow: { key: 'prop-shadow', originX: 0.5, originY: 0.5 } satisfies SpriteAsset,
 };
 
-export function objectAsset(objectType: string, state: string): SpriteAsset {
+export function doorAsset(state: string, axis: 'x' | 'y'): SpriteAsset {
+  const leaf = state === 'open' ? 'open' : state === 'forced' ? 'forced' : state === 'locked' ? 'locked' : 'closed';
+  return { key: `door-${axis}-${leaf}`, originX: 0.5, originY: 0.94 };
+}
+
+export function objectAsset(objectType: string, state: string, axis: 'x' | 'y' = 'x'): SpriteAsset {
   if (objectType === 'locker') return assets.locker;
-  if (objectType === 'door') return state === 'open' ? assets.doorOpen : assets.door;
+  if (objectType === 'door') return doorAsset(state, axis);
   return state === 'operated' ? assets.panelOn : assets.panel;
 }

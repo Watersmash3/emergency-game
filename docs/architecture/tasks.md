@@ -71,6 +71,12 @@ A supply connection checks hose length along the walking route, not the straight
 
 `enqueue` stores a move, retrieval, door, panel, board, or exit command on that responder. It does not reserve equipment or interrupt the running task. When the responder has no running task, the next queued command is checked again and then started. An invalid command is dropped and recorded once. A new direct order for that responder clears the queue. `cancel-order` removes one waiting command. The queue is part of the save.
 
+## Buildings and search
+
+A building is a record with one floor, rooms, walls, and an entrance door. Doors stay interactable entities. `open-door` and `close-door` use the task system and reserve the door. `force-door` still requires a Halligan and leaves the door forced, which can be walked through and cannot be closed. A door change replans pedestrian paths. `enter-building` moves a responder to the interior entry tile when the entrance is passable.
+
+`search-room` walks to each listed search tile and spends simulation time there, then marks the room searched and reports discoveries. `search-building` assigns reachable unsearched rooms to free on-foot members who do not already have an individual order. When a closed or locked door is what blocks those rooms, a free member opens it, or forces it when a Halligan tool can be carried or fetched. It does not start a second search of a room that is already assigned. An individual override suspends that member's room task; the building search drops that assignment and gives the room to someone else. Rooms that stay unreachable after that are marked blocked. Clicking search again retries rooms that were blocked. The objective completes when every room is searched or blocked.
+
 ## What this model is not yet
 
 There is no goal, plan, or atomic-action library. The vehicle does not steer, accelerate, or change lanes. It travels node to node. The simulation does not replace a missing driver automatically. Fire does not spread to neighboring tiles. Hoses follow tile routes and do not collide with the map.

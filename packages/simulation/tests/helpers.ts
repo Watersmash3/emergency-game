@@ -22,6 +22,7 @@ export function makeScenario(
     fires?: Scenario['fires'];
     incidents?: Scenario['incidents'];
     hydrants?: Scenario['hydrants'];
+    buildings?: Scenario['buildings'];
   } = {},
 ): Scenario {
   const responders = input.responders ?? [
@@ -54,6 +55,7 @@ export function makeScenario(
     ...(input.fires ? { fires: input.fires } : {}),
     ...(input.incidents ? { incidents: input.incidents } : {}),
     ...(input.hydrants ? { hydrants: input.hydrants } : {}),
+    ...(input.buildings ? { buildings: input.buildings } : {}),
   });
 }
 

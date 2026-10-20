@@ -25,6 +25,8 @@ export function Hud() {
   const rosterOpen = useGameStore((state) => state.rosterOpen);
   const detailOpen = useGameStore((state) => state.detailOpen);
   const commandMode = useGameStore((state) => state.commandMode);
+  const roofMode = useGameStore((state) => state.roofMode);
+  const focusRoomId = useGameStore((state) => state.focusRoomId);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -67,7 +69,7 @@ export function Hud() {
     );
   }
 
-  const actions = commandActions(snapshot, selection);
+  const actions = commandActions(snapshot, selection, focusRoomId);
   const notices = [...snapshot.notices].reverse().slice(0, 4);
 
   return (
@@ -127,6 +129,19 @@ export function Hud() {
           <button type="button" title="F" onClick={() => useGameStore.getState().requestCamera('focus')}>
             Zoom to selection
           </button>
+          <div className="roof">
+            <span>Roof</span>
+            {(['auto', 'open', 'closed'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={roofMode === mode}
+                onClick={() => useGameStore.getState().setRoofMode(mode)}
+              >
+                {mode === 'auto' ? 'Auto' : mode === 'open' ? 'Open' : 'Closed'}
+              </button>
+            ))}
+          </div>
           <p className="help">
             Wheel zooms. Middle mouse pans. Shift queues a move or interaction. Drag selects responders.
             Backspace cancels. Escape clears the selection.
@@ -159,6 +174,7 @@ export function Hud() {
             </button>
           </header>
           <IncidentCard snapshot={snapshot} />
+          <BuildingCard snapshot={snapshot} focusRoomId={focusRoomId} />
           <SelectionCard snapshot={snapshot} selection={selection} />
         </aside>
       ) : (
@@ -353,6 +369,58 @@ function IncidentCard({ snapshot }: { snapshot: SimulationSnapshot }) {
       >
         Zoom to incident
       </button>
+    </section>
+  );
+}
+
+function BuildingCard({
+  snapshot,
+  focusRoomId,
+}: {
+  snapshot: SimulationSnapshot;
+  focusRoomId: string | null;
+}) {
+  if (snapshot.buildings.length === 0) return null;
+  return (
+    <section className="detail">
+      {snapshot.buildings.map((building) => (
+        <div key={building.id}>
+          <h3>{building.name}</h3>
+          <ul className="queue">
+            {building.rooms.map((roomId) => {
+              const room = snapshot.rooms.find((candidate) => candidate.id === roomId);
+              if (!room) return null;
+              const status =
+                room.state === 'searched'
+                  ? 'Searched'
+                  : room.state === 'searching'
+                    ? 'Searching'
+                    : room.state === 'blocked'
+                      ? 'Blocked'
+                      : room.discovered
+                        ? 'Explored'
+                        : 'Unexplored';
+              return (
+                <li key={room.id}>
+                  <button type="button" onClick={() => useGameStore.getState().setFocusRoom(room.id)}>
+                    {room.id === focusRoomId ? '▸ ' : ''}
+                    {room.name}
+                  </button>
+                  <small>
+                    {status}
+                    {room.discoveries.some((discovery) => discovery.found)
+                      ? ` · ${room.discoveries
+                          .filter((discovery) => discovery.found)
+                          .map((discovery) => discovery.name)
+                          .join(', ')}`
+                      : ''}
+                  </small>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }
@@ -601,5 +669,10 @@ function describeTask(task: TaskSnapshot): string {
   if (task.kind === 'operate-nozzle' || task.kind === 'suppress-fire') return 'Suppressing';
   if (task.kind === 'establish-fire-attack') return 'Fire attack';
   if (task.kind === 'respond' || task.kind === 'drive-vehicle') return 'Responding';
+  if (task.kind === 'search-room') return 'Searching room';
+  if (task.kind === 'search-building') return 'Searching building';
+  if (task.kind === 'open-door') return 'Opening door';
+  if (task.kind === 'close-door') return 'Closing door';
+  if (task.kind === 'force-door') return 'Forcing door';
   return task.kind;
 }
