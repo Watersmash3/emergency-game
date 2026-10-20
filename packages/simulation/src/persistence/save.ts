@@ -138,6 +138,21 @@ export function exportWorld(world: World): SaveDocument {
       })),
     })),
     reservedDoors: [...world.reservedDoors.entries()].map(([doorId, taskId]) => ({ doorId, taskId })),
+    hazards: [...world.hazards.values()]
+      .sort((left, right) => left.y - right.y || left.x - right.x)
+      .map((cell) => ({
+        x: cell.x,
+        y: cell.y,
+        temperature: cell.temperature,
+        fuel: cell.fuel,
+        combustion: cell.combustion,
+        smoke: cell.smoke,
+        water: cell.water,
+        sourceId: cell.sourceId,
+      })),
+    exposure: [...world.exposure.entries()]
+      .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+      .map(([responderId, exposure]) => ({ responderId, exposure, air: null })),
   });
 }
 
@@ -258,6 +273,22 @@ function worldFromDocument(document: SaveDocument): World {
     ),
     doorLinks: new Map(),
     reservedDoors: new Map(document.reservedDoors.map((entry) => [entry.doorId, entry.taskId])),
+    hazards: new Map(
+      document.hazards.map((cell) => [
+        `${cell.x},${cell.y}`,
+        {
+          x: cell.x,
+          y: cell.y,
+          temperature: cell.temperature,
+          fuel: cell.fuel,
+          combustion: cell.combustion,
+          smoke: cell.smoke,
+          water: cell.water,
+          sourceId: cell.sourceId,
+        },
+      ]),
+    ),
+    exposure: new Map(document.exposure.map((entry) => [entry.responderId, entry.exposure])),
     routeEpoch: 1,
   };
 }

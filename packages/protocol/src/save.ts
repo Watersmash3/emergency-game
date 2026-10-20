@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { queuedCommandSchema } from './commands.ts';
 import { objectTypeSchema, teamDefinitionSchema, tileSchema, vec2Schema } from './scenario.ts';
-import { taskStateSchema } from './snapshot.ts';
+import { exposureSnapshotSchema, hazardCellSchema, taskStateSchema } from './snapshot.ts';
 
 /** Version of the portable save document. Render snapshots are not save files. */
 export const SAVE_SCHEMA_VERSION = 2;
@@ -399,6 +399,8 @@ export const saveDocumentSchema = z.object({
       }),
     )
     .default([]),
+  hazards: z.array(hazardCellSchema).default([]),
+  exposure: z.array(exposureSnapshotSchema).default([]),
 });
 
 export type SaveDocument = z.infer<typeof saveDocumentSchema>;

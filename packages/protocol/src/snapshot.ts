@@ -271,6 +271,27 @@ export const fireSnapshotSchema = z.object({
 
 export type FireSnapshot = z.infer<typeof fireSnapshotSchema>;
 
+export const hazardCellSchema = z.object({
+  x: z.number().int(),
+  y: z.number().int(),
+  temperature: z.number(),
+  fuel: z.number().nonnegative(),
+  combustion: z.number().nonnegative(),
+  smoke: z.number().nonnegative(),
+  water: z.number().nonnegative(),
+  sourceId: z.string().min(1),
+});
+
+export type HazardCellSnapshot = z.infer<typeof hazardCellSchema>;
+
+export const exposureSnapshotSchema = z.object({
+  responderId: z.string().min(1),
+  exposure: z.number().nonnegative(),
+  air: z.number().nonnegative().nullable(),
+});
+
+export type ExposureSnapshot = z.infer<typeof exposureSnapshotSchema>;
+
 export const incidentSnapshotSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -396,6 +417,8 @@ export const simulationSnapshotSchema = z.object({
   notices: z.array(noticeSnapshotSchema),
   buildings: z.array(buildingSnapshotSchema),
   rooms: z.array(roomSnapshotSchema),
+  hazards: z.array(hazardCellSchema).default([]),
+  exposure: z.array(exposureSnapshotSchema).default([]),
 });
 
 export type SimulationSnapshot = z.infer<typeof simulationSnapshotSchema>;

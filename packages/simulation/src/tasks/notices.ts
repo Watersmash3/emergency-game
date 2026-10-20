@@ -131,6 +131,10 @@ function person(world: World, id: string): string {
   return entity?.responder?.name ?? entity?.vehicle?.name ?? id;
 }
 
+export function noteHazard(world: World, key: string, message: string): void {
+  emitNotice(world, key, message, 'warning');
+}
+
 function emitNotice(world: World, key: string, message: string, tone: NoticeTone): void {
   if (world.noticeLatch.has(key)) return;
   world.noticeLatch.add(key);

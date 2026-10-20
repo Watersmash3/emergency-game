@@ -5,6 +5,7 @@ import type { World } from '../core/world.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { isWalkable, tileOf } from '../navigation/grid.ts';
+import { fireControlled } from '../systems/hazardQuery.ts';
 import { CommandRejection } from './results.ts';
 import type { SuppressFireTask, Task } from './types.ts';
 import { approachTiles, blocksPedestrian, canTakeFrom } from './vehicleRules.ts';
@@ -15,7 +16,7 @@ export function evaluateIncidents(world: World): void {
   for (const objective of world.objectives.values()) {
     if (objective.state === 'satisfied') continue;
     const fire = world.entities.get(objective.targetId)?.fire;
-    if (fire && fire.intensity <= 0) objective.state = 'satisfied';
+    if (fire && fireControlled(world, objective.targetId)) objective.state = 'satisfied';
   }
   for (const incident of world.incidents.values()) {
     const objectives = [...world.objectives.values()].filter(
@@ -109,7 +110,7 @@ export function invalidSuppressReason(world: World, task: Task, from: Tile): str
   if (blocksPedestrian(responder)) return CommandRejection.Aboard;
   const fire = world.entities.get(task.targetId);
   if (!fire?.fire) return CommandRejection.UnknownFire;
-  if (fire.fire.intensity <= 0) return null;
+  if (fireControlled(world, task.targetId)) return null;
   if (!carriedSuppress(world, task.assigneeId) && !reservedSuppress(world, task)) {
     return CommandRejection.NoSuppressant;
   }

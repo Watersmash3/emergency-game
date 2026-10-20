@@ -136,6 +136,12 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       suppression: 0.05,
       maxLength: 16,
     },
+    {
+      id: 'scba',
+      name: 'SCBA',
+      capabilities: ['breathing-apparatus'],
+      agent: 2400,
+    },
   ],
   equipment: [
     { id: 'item-halligan', definitionId: 'halligan', locationId: 'locker-staging' },
@@ -150,6 +156,8 @@ export const trainingYard: Scenario = scenarioSchema.parse({
     },
     { id: 'item-supply-hose', definitionId: 'supply-hose', locationId: 'apparatus-engine-1' },
     { id: 'item-attack-hose', definitionId: 'attack-hose', locationId: 'apparatus-engine-1' },
+    { id: 'item-scba', definitionId: 'scba', locationId: 'locker-staging' },
+    { id: 'item-engine-scba', definitionId: 'scba', locationId: 'apparatus-engine-1' },
   ],
   inventoryCapacity: 2,
   roadNodes: [
@@ -198,7 +206,7 @@ export const trainingYard: Scenario = scenarioSchema.parse({
     {
       id: 'fire-training',
       name: 'Training fire',
-      position: { x: 10, y: 14 },
+      position: { x: 10, y: 11 },
       intensity: 0.45,
       maxIntensity: 1,
       fuel: 600,

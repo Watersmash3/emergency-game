@@ -358,6 +358,9 @@ function IncidentCard({ snapshot }: { snapshot: SimulationSnapshot }) {
         <i />
         {incident.state === 'active' ? 'Active' : 'Resolved'}
         {fire && !fire.out ? ` · ${Math.round((fire.intensity / fire.maxIntensity) * 100)}%` : ' · out'}
+        {fire
+          ? ` · ${snapshot.hazards.filter((cell) => cell.sourceId === fire.id && cell.combustion > 0.05).length} burning`
+          : ''}
       </p>
       <button
         type="button"
@@ -441,6 +444,7 @@ function SelectionCard({ snapshot, selection }: { snapshot: SimulationSnapshot; 
             {entity.inventory.length > 0
               ? ` · ${entity.inventory.map((item) => item.name).join(', ')}`
               : ' · no equipment'}
+            {exposureLine(snapshot, entity.id)}
           </p>
         ))}
         {orders.length > 0 ? (
@@ -498,7 +502,12 @@ function SelectionCard({ snapshot, selection }: { snapshot: SimulationSnapshot; 
     return (
       <section className="detail">
         <h3>{fire.name}</h3>
-        <p>{fire.out ? 'Out' : `${Math.round((fire.intensity / fire.maxIntensity) * 100)}% intensity`}</p>
+        <p>
+          {fire.out ? 'Out' : `${Math.round((fire.intensity / fire.maxIntensity) * 100)}% intensity`}
+          {` · ${
+            snapshot.hazards.filter((cell) => cell.sourceId === fire.id && cell.combustion > 0.05).length
+          } burning cells`}
+        </p>
       </section>
     );
   }
@@ -608,17 +617,31 @@ function responderPosture(
     (task) => (task.state === 'running' || task.state === 'suspended') && task.kind !== 'interact',
   );
   const failed = tasks.some((task) => task.state === 'failed' && !task.parentId);
-  const exposed = snapshot.fires.some(
-    (fire) =>
-      !fire.out &&
-      Math.abs(fire.position.x - Math.floor(entity.position.x)) +
-        Math.abs(fire.position.y - Math.floor(entity.position.y)) <=
-        2,
-  );
+  const tileX = Math.floor(entity.position.x);
+  const tileY = Math.floor(entity.position.y);
+  const cell = snapshot.hazards.find((hazard) => hazard.x === tileX && hazard.y === tileY);
+  const condition = snapshot.exposure.find((entry) => entry.responderId === id);
+  const exposed =
+    (condition?.exposure ?? 0) >= 0.35 ||
+    (cell !== undefined && (cell.smoke > 0.25 || cell.temperature > 80)) ||
+    snapshot.fires.some(
+      (fire) =>
+        !fire.out &&
+        Math.abs(fire.position.x - tileX) + Math.abs(fire.position.y - tileY) <= 2,
+    );
   if (exposed) return { label: 'Exposed', tone: 'danger' };
   if (failed && !working) return { label: 'Blocked', tone: 'danger' };
   if (working) return { label: 'Working', tone: 'working' };
   return { label: 'Available', tone: 'ready' };
+}
+
+function exposureLine(snapshot: SimulationSnapshot, id: string): string {
+  const condition = snapshot.exposure.find((entry) => entry.responderId === id);
+  if (!condition) return '';
+  const parts: string[] = [];
+  if (condition.exposure > 0.02) parts.push(`exposure ${Math.round(condition.exposure * 100)}%`);
+  if (condition.air !== null) parts.push(`air ${Math.max(0, Math.ceil(condition.air / 20))}s`);
+  return parts.length > 0 ? ` · ${parts.join(' · ')}` : '';
 }
 
 function assignment(snapshot: SimulationSnapshot, id: string): string {

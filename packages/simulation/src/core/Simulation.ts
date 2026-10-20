@@ -17,6 +17,8 @@ import type { Entity } from '../entities/Entity.ts';
 import { inBounds, isBlocked, isWalkable, tileCenter, tileKey, tileOf } from '../navigation/grid.ts';
 import { buildAdjacency } from '../navigation/road.ts';
 import { stepFire } from '../systems/fireSystem.ts';
+import { fireControlled } from '../systems/hazardQuery.ts';
+import { exposureRows, hazardRows, stepHazards } from '../systems/hazardSystem.ts';
 import { stepWater } from '../systems/waterSystem.ts';
 import { stepMovement } from '../systems/movementSystem.ts';
 import { stepVehicles, syncOccupants } from '../systems/vehicleSystem.ts';
@@ -76,6 +78,7 @@ export class Simulation {
     stepWater(this.world);
     stepFire(this.world);
     stepTasks(this.world);
+    stepHazards(this.world);
     revealRooms(this.world);
     evaluateIncidents(this.world);
     syncOccupants(this.world);
@@ -414,6 +417,8 @@ function createWorld(scenarioInput: Scenario): World {
     rooms: structure.rooms,
     doorLinks: structure.doorLinks,
     reservedDoors: new Map(),
+    hazards: new Map(),
+    exposure: new Map(),
     routeEpoch: 0,
   };
 }
@@ -508,7 +513,7 @@ function snapshotOf(world: World): SimulationSnapshot {
           intensity: fire.intensity,
           maxIntensity: fire.maxIntensity,
           fuel: fire.fuel,
-          out: fire.intensity <= 0,
+          out: fireControlled(world, entity.id),
         };
       }),
     hydrants: [...world.entities.values()]
@@ -610,6 +615,17 @@ function snapshotOf(world: World): SimulationSnapshot {
           found: discovery.found,
         })),
       })),
+    hazards: hazardRows(world).map((cell) => ({
+      x: cell.x,
+      y: cell.y,
+      temperature: cell.temperature,
+      fuel: cell.fuel,
+      combustion: cell.combustion,
+      smoke: cell.smoke,
+      water: cell.water,
+      sourceId: cell.sourceId,
+    })),
+    exposure: exposureRows(world),
   };
 }
 

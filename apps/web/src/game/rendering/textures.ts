@@ -24,6 +24,7 @@ export function createPlaceholderTextures(scene: Phaser.Scene): void {
   drawEngine(scene);
   drawFire(scene, 'fire-live', false);
   drawFire(scene, 'fire-out', true);
+  drawDiamond(scene, 'hazard-smoke', 0xb7c0c8, 0x8e99a3, 0xd5dde4);
 }
 
 function drawDiamond(

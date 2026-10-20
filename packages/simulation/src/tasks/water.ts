@@ -4,6 +4,8 @@ import { hoseEntityId } from '../components/hose.ts';
 import type { World } from '../core/world.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { tileOf } from '../navigation/grid.ts';
+import { fireControlled } from '../systems/hazardQuery.ts';
+import { applyWater, suppressionTile } from '../systems/hazardSystem.ts';
 import { evaluateIncidents, inSuppressionRange, nearestReachable, rangeTiles } from './fireRules.ts';
 import {
   abandonTask,
@@ -363,7 +365,7 @@ function operateNozzle(
   }
   const fire = world.entities.get(fireId);
   if (!fire?.fire || !fire.position) return { ok: false, reason: CommandRejection.UnknownFire };
-  if (fire.fire.intensity <= 0) return { ok: false, reason: CommandRejection.FireOut };
+  if (fireControlled(world, fireId)) return { ok: false, reason: CommandRejection.FireOut };
   const sourceEntity = world.entities.get(hose.sourceId);
   if (!sourceEntity?.position) return { ok: false, reason: CommandRejection.NotConnected };
   const tiles = rangeTiles(world, tileOf(fire.position), fire.fire.range).filter((tile) => {
@@ -847,7 +849,7 @@ function advanceOperate(world: World, task: WaterTask): void {
     return;
   }
   hose.operatorId = task.assigneeId;
-  if (fire.fire.intensity <= 0) {
+  if (fireControlled(world, task.targetId)) {
     evaluateIncidents(world);
     hose.flow = 0;
     completeTask(world, task);
@@ -891,9 +893,11 @@ function advanceOperate(world: World, task: WaterTask): void {
   hose.flow = amount;
   if (amount <= 0) return;
   const rate = world.catalog.get(hose.definitionId)?.suppression ?? 0;
-  fire.fire.intensity = Math.max(0, fire.fire.intensity - rate * amount);
+  const dose = rate * amount;
+  fire.fire.intensity = Math.max(0, fire.fire.intensity - dose);
+  applyWater(world, suppressionTile(world, task.targetId), dose);
   task.progressTicks += 1;
-  if (fire.fire.intensity <= 0) {
+  if (fireControlled(world, task.targetId)) {
     evaluateIncidents(world);
     completeTask(world, task);
   }
@@ -1060,7 +1064,7 @@ function roleSatisfied(
     return deployedSupply(world, parent.vehicleId ?? '', parent.hydrantId ?? '')?.hose?.state === 'open';
   }
   if (role === 'pump') return pumpOf(world.entities.get(parent.vehicleId ?? ''))?.state === 'operating';
-  if (role === 'attack') return (world.entities.get(fireId)?.fire?.intensity ?? 1) <= 0;
+  if (role === 'attack') return fireControlled(world, fireId);
   return false;
 }
 

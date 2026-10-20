@@ -15,14 +15,14 @@ describe('training yard', () => {
       'panel',
       'door',
     ]);
-    expect(trainingYard.equipment).toHaveLength(8);
+    expect(trainingYard.equipment).toHaveLength(10);
     expect(trainingYard.hydrants.map((hydrant) => hydrant.id)).toEqual(['hydrant-staging']);
     expect(trainingYard.blocked).toContainEqual({ x: 10, y: 12 });
     expect(trainingYard.team.apparatusId).toBe('apparatus-engine-1');
     expect(trainingYard.vehicles).toHaveLength(1);
     expect(trainingYard.vehicles[0]?.definitionId).toBe('fire_engine_standard');
     expect(trainingYard.roadNodes.map((node) => node.id)).toContain('n-staging');
-    expect(trainingYard.fires.map((fire) => fire.position)).toEqual([{ x: 10, y: 14 }]);
+    expect(trainingYard.fires.map((fire) => fire.position)).toEqual([{ x: 10, y: 11 }]);
     expect(trainingYard.incidents.map((incident) => incident.id)).toEqual(['incident-training']);
     expect(
       trainingYard.equipmentCatalog.find((item) => item.id === 'extinguisher')?.capabilities,

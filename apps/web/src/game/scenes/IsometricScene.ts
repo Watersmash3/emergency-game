@@ -38,6 +38,7 @@ export class IsometricScene extends Phaser.Scene {
   private readonly objectSprites = new Map<string, SpriteView>();
   private readonly vehicleSprites = new Map<string, SpriteView>();
   private readonly fireSprites = new Map<string, SpriteView>();
+  private readonly hazardSprites = new Map<string, Phaser.GameObjects.Image>();
   private readonly hydrantSprites = new Map<string, SpriteView>();
   private readonly tileImages = new Map<string, Phaser.GameObjects.Image>();
   private readonly wallSprites = new Map<string, Phaser.GameObjects.Image>();
@@ -139,6 +140,7 @@ export class IsometricScene extends Phaser.Scene {
     this.ensureVehicles(snapshot);
     this.ensureFires(snapshot);
     this.ensureHydrants(snapshot);
+    this.syncHazards(snapshot);
   }
 
   private buildMap(snapshot: SimulationSnapshot): void {
@@ -431,6 +433,46 @@ export class IsometricScene extends Phaser.Scene {
     }
   }
 
+  private syncHazards(snapshot: SimulationSnapshot): void {
+    const open = this.roofOpen(snapshot);
+    const wanted = new Set<string>();
+    for (const cell of snapshot.hazards) {
+      const inside = tileInsideRoom(snapshot, cell.x, cell.y);
+      if (inside && !open) continue;
+      const screen = worldToScreen(cell.x + 0.5, cell.y + 0.5);
+      if (cell.smoke > 0.08 || cell.temperature > 90) {
+        const key = `smoke:${cell.x},${cell.y}`;
+        wanted.add(key);
+        const image = this.hazardSprites.get(key) ?? this.add.image(screen.x, screen.y, 'hazard-smoke');
+        const heat = cell.temperature > 110;
+        image.setPosition(screen.x, screen.y);
+        image.setDepth(screen.y + 1.2);
+        image.setAlpha(Math.min(0.7, cell.smoke * 0.75 + (heat ? 0.14 : 0)));
+        image.setTint(heat ? 0xffb060 : 0xc5ced6);
+        this.hazardSprites.set(key, image);
+      }
+      const occupied = snapshot.fires.some(
+        (fire) => !fire.out && fire.position.x === cell.x && fire.position.y === cell.y,
+      );
+      if (cell.combustion > 0.18 && !occupied) {
+        const key = `flame:${cell.x},${cell.y}`;
+        wanted.add(key);
+        const image = this.hazardSprites.get(key) ?? this.add.image(screen.x, screen.y, assets.fire.key);
+        image.setOrigin(assets.fire.originX, assets.fire.originY);
+        image.setPosition(screen.x, screen.y - 6);
+        image.setDepth(screen.y + 3);
+        image.setScale(0.5 + cell.combustion * 0.35);
+        image.setAlpha(0.92);
+        this.hazardSprites.set(key, image);
+      }
+    }
+    for (const [key, image] of this.hazardSprites) {
+      if (wanted.has(key)) continue;
+      image.destroy();
+      this.hazardSprites.delete(key);
+    }
+  }
+
   private label(name: string): Phaser.GameObjects.Text {
     return this.add
       .text(0, 0, name, {
@@ -508,10 +550,19 @@ export class IsometricScene extends Phaser.Scene {
       const inside = tileInsideRoom(snapshot, Math.floor(x), Math.floor(y));
       const visible = revealed || !inside;
       view.token.setVisible(visible);
+      const standing = snapshot.hazards.find(
+        (cell) => cell.x === Math.floor(x) && cell.y === Math.floor(y),
+      );
+      const condition = snapshot.exposure.find((entry) => entry.responderId === entity.id);
+      const obscured = (standing?.smoke ?? 0) > 0.45;
+      view.token.setAlpha(obscured ? 0.4 : 1);
+      view.token.setTint((condition?.exposure ?? 0) >= 0.35 || obscured ? 0xffb089 : 0xffffff);
       view.shadow?.setPosition(screen.x, screen.y + 2);
       view.shadow?.setDepth(screen.y + 0.2);
       view.shadow?.setVisible(visible);
     }
+
+    this.syncHazards(snapshot);
 
     for (const vehicle of snapshot.vehicles) {
       const view = this.vehicleSprites.get(vehicle.id);

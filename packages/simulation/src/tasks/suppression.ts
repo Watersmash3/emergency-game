@@ -2,6 +2,8 @@ import type { Command, Tile } from '@emergency/protocol';
 
 import type { World } from '../core/world.ts';
 import { tileOf } from '../navigation/grid.ts';
+import { fireControlled } from '../systems/hazardQuery.ts';
+import { applyWater, suppressionTile } from '../systems/hazardSystem.ts';
 import {
   carriedSuppress,
   evaluateIncidents,
@@ -149,7 +151,7 @@ function advanceSuppress(world: World, task: SuppressFireTask): void {
     failTask(world, task, CommandRejection.Aboard);
     return;
   }
-  if (fire.fire.intensity <= 0) {
+  if (fireControlled(world, task.targetId)) {
     evaluateIncidents(world);
     completeTask(world, task);
     return;
@@ -196,9 +198,10 @@ function advanceSuppress(world: World, task: SuppressFireTask): void {
   }
   carried.agent = (carried.agent ?? 0) - 1;
   fire.fire.intensity = Math.max(0, fire.fire.intensity - rate);
+  applyWater(world, suppressionTile(world, task.targetId), rate);
   task.step = 'suppress';
   task.progressTicks += 1;
-  if (fire.fire.intensity <= 0) {
+  if (fireControlled(world, task.targetId)) {
     evaluateIncidents(world);
     completeTask(world, task);
     return;
@@ -312,7 +315,7 @@ function planSuppress(
   if (blocksPedestrian(entity)) return { ok: false, reason: CommandRejection.Aboard };
   const fire = world.entities.get(fireId);
   if (!fire?.fire || !fire.position) return { ok: false, reason: CommandRejection.UnknownFire };
-  if (fire.fire.intensity <= 0) return { ok: false, reason: CommandRejection.FireOut };
+  if (fireControlled(world, fireId)) return { ok: false, reason: CommandRejection.FireOut };
   const origin = tileOf(entity.position);
   const approach = nearestReachable(
     world,
