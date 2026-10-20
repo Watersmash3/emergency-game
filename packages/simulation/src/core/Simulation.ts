@@ -17,7 +17,7 @@ import type { Entity } from '../entities/Entity.ts';
 import { inBounds, isBlocked, isWalkable, tileCenter, tileKey, tileOf } from '../navigation/grid.ts';
 import { buildAdjacency } from '../navigation/road.ts';
 import { stepFire } from '../systems/fireSystem.ts';
-import { fireControlled } from '../systems/hazardQuery.ts';
+import { fireControlled, incidentPhase, incidentTrend } from '../systems/hazardQuery.ts';
 import { exposureRows, hazardRows, stepHazards } from '../systems/hazardSystem.ts';
 import { stepWater } from '../systems/waterSystem.ts';
 import { stepMovement } from '../systems/movementSystem.ts';
@@ -179,7 +179,7 @@ function createWorld(scenarioInput: Scenario): World {
     if (objectIds.has(object.id) || entities.has(object.id)) {
       throw new Error(`Duplicate entity id ${object.id}`);
     }
-    if (object.objectType !== 'door' && isBlocked(blocked, object.position)) {
+    if (object.objectType !== 'door' && object.objectType !== 'window' && isBlocked(blocked, object.position)) {
       throw new Error(`Object ${object.id} is on a blocked tile`);
     }
     objectIds.add(object.id);
@@ -363,7 +363,7 @@ function createWorld(scenarioInput: Scenario): World {
     incidents.set(incident.id, { id: incident.id, name: incident.name, state: 'active' });
     for (const objective of incident.objectives) {
       if (objectives.has(objective.id)) throw new Error(`Duplicate objective id ${objective.id}`);
-      if (!entities.get(objective.targetId)?.fire) {
+      if (objective.kind === 'suppress-fire' && !entities.get(objective.targetId)?.fire) {
         throw new Error(`Objective ${objective.id} has an unknown fire`);
       }
       objectives.set(objective.id, {
@@ -378,6 +378,11 @@ function createWorld(scenarioInput: Scenario): World {
 
   const structure = loadBuildings(scenario);
   for (const wall of structure.walls) blocked.add(tileKey(wall));
+  for (const objective of objectives.values()) {
+    if (objective.kind === 'overhaul-room' && !structure.rooms.has(objective.targetId)) {
+      throw new Error(`Objective ${objective.id} has an unknown room`);
+    }
+  }
 
   return {
     scenarioId: scenario.id,
@@ -419,6 +424,13 @@ function createWorld(scenarioInput: Scenario): World {
     reservedDoors: new Map(),
     hazards: new Map(),
     exposure: new Map(),
+    furnishings: new Map(
+      scenario.furnishings.map((item) => [
+        item.id,
+        { id: item.id, name: item.name, x: item.position.x, y: item.position.y, materialId: item.materialId },
+      ]),
+    ),
+    damage: new Map(),
     routeEpoch: 0,
   };
 }
@@ -554,20 +566,27 @@ function snapshotOf(world: World): SimulationSnapshot {
       }),
     incidents: [...world.incidents.values()]
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
-      .map((incident) => ({
-        id: incident.id,
-        name: incident.name,
-        state: incident.state,
-        objectives: [...world.objectives.values()]
-          .filter((objective) => objective.incidentId === incident.id)
-          .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
-          .map((objective) => ({
-            id: objective.id,
-            kind: objective.kind,
-            targetId: objective.targetId,
-            state: objective.state,
-          })),
-      })),
+      .map((incident) => {
+        const targets = [...world.objectives.values()]
+          .filter((objective) => objective.incidentId === incident.id && objective.kind === 'suppress-fire')
+          .map((objective) => objective.targetId);
+        return {
+          id: incident.id,
+          name: incident.name,
+          state: incident.state,
+          phase: incident.state === 'resolved' ? ('resolved' as const) : incidentPhase(world, targets),
+          trend: incidentTrend(world, targets),
+          objectives: [...world.objectives.values()]
+            .filter((objective) => objective.incidentId === incident.id)
+            .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+            .map((objective) => ({
+              id: objective.id,
+              kind: objective.kind,
+              targetId: objective.targetId,
+              state: objective.state,
+            })),
+        };
+      }),
     orders: world.orders.map((order) => ({
       id: order.id,
       assigneeId: order.command.responderId,
@@ -614,6 +633,11 @@ function snapshotOf(world: World): SimulationSnapshot {
           name: discovery.name,
           found: discovery.found,
         })),
+        upperTemp: room.upperTemp,
+        lowerTemp: room.lowerTemp,
+        smoke: room.smoke,
+        oxygen: room.oxygen,
+        overhauled: room.overhauled,
       })),
     hazards: hazardRows(world).map((cell) => ({
       x: cell.x,
@@ -624,8 +648,30 @@ function snapshotOf(world: World): SimulationSnapshot {
       smoke: cell.smoke,
       water: cell.water,
       sourceId: cell.sourceId,
+      materialId: cell.materialId,
+      char: cell.char,
+      steam: cell.steam,
+      hotspot: cell.hotspot,
+      revealed: cell.revealed,
     })),
     exposure: exposureRows(world),
+    furnishings: [...world.furnishings.values()]
+      .sort((left, right) => (left.id < right.id ? -1 : 1))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        position: { x: item.x, y: item.y },
+        materialId: item.materialId,
+      })),
+    damage: [...world.damage.values()]
+      .filter((record) => record.integrity < 1)
+      .sort((left, right) => left.y - right.y || left.x - right.x)
+      .map((record) => ({
+        x: record.x,
+        y: record.y,
+        integrity: record.integrity,
+        failed: record.failed,
+      })),
   };
 }
 
@@ -812,7 +858,13 @@ function snapshotTask(world: World, task: Task): TaskSnapshot {
       ...progress,
     };
   }
-  if (task.kind === 'open-door' || task.kind === 'close-door' || task.kind === 'search-building') {
+  if (
+    task.kind === 'open-door' ||
+    task.kind === 'close-door' ||
+    task.kind === 'search-building' ||
+    task.kind === 'ventilate' ||
+    task.kind === 'overhaul'
+  ) {
     return { ...common, kind: task.kind, targetId: task.targetId, ...progress };
   }
   if (task.kind === 'search-room') {

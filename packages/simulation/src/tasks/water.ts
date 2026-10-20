@@ -895,7 +895,7 @@ function advanceOperate(world: World, task: WaterTask): void {
   const rate = world.catalog.get(hose.definitionId)?.suppression ?? 0;
   const dose = rate * amount;
   fire.fire.intensity = Math.max(0, fire.fire.intensity - dose);
-  applyWater(world, suppressionTile(world, task.targetId), dose);
+  applyWater(world, suppressionTile(world, task.targetId), dose, 'stream');
   task.progressTicks += 1;
   if (fireControlled(world, task.targetId)) {
     evaluateIncidents(world);

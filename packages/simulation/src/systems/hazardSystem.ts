@@ -8,14 +8,17 @@ import {
   type HazardCell,
   hazardKey,
 } from '../components/hazard.ts';
+import { materialById, materialForTile, type Material } from '../components/material.ts';
 import type { World } from '../core/world.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { inBounds, isWalkable, tileOf } from '../navigation/grid.ts';
+import { roomAt } from '../tasks/building.ts';
 import { clearRoute, isOpen, nextIdentifier, overrideWith } from '../tasks/lifecycle.ts';
 import { noteHazard } from '../tasks/notices.ts';
 import { transition } from '../tasks/transitions.ts';
 import type { MoveTask } from '../tasks/types.ts';
+import { degradeStructure, markHotspots, oxygenAt, stepAtmosphere } from './compartment.ts';
 
 const SPREAD_COMBUSTION = 0.2;
 const SPREAD_TEMPERATURE = 50;
@@ -32,23 +35,47 @@ export function stepHazards(world: World): void {
   spread(world, live);
   moveSmoke(world);
   settle(world, live);
+  stepAtmosphere(world, live);
+  degradeStructure(world);
+  markHotspots(world, live);
   prune(world, live);
   expose(world);
 }
 
 /** Wet a tile and its open neighbors. The ignition intensity is reduced by the caller. */
-export function applyWater(world: World, tile: Tile, amount: number): void {
+export function applyWater(
+  world: World,
+  tile: Tile,
+  amount: number,
+  style: 'spray' | 'stream' = 'spray',
+): void {
   if (amount <= 0) return;
   const tiles = [tile, ...openNeighbors(world, tile)];
   for (const target of tiles) {
     const cell = world.hazards.get(hazardKey(target.x, target.y));
     if (!cell) continue;
+    const material = materialById(cell.materialId);
     const dose = target === tile ? amount : amount * 0.25;
-    cell.water = Math.min(1, cell.water + dose * 0.35);
-    cell.temperature = Math.max(AMBIENT_TEMPERATURE, cell.temperature - dose * 25);
-    cell.combustion = Math.max(0, cell.combustion - dose * 0.2);
+    const cooling = material.cooling;
+    const profile = waterProfile(style, dose, cooling);
+    const hot = cell.temperature > 70;
+    cell.water = clamp(cell.water + profile.water, 0, 1);
+    cell.temperature = Math.max(AMBIENT_TEMPERATURE, cell.temperature - profile.cooling);
+    cell.combustion = Math.max(0, cell.combustion - profile.combustion);
     cell.smoke = Math.max(0, cell.smoke - dose * 0.08);
+    if (hot) cell.steam = clamp(cell.steam + profile.steam, 0, 1);
+    if (cell.hotspot && dose > 0) cell.revealed = true;
   }
+}
+
+/** A stream cools and steams more per unit. A spray knocks down combustion a little harder. */
+export function waterProfile(style: 'spray' | 'stream', dose: number, cooling: number) {
+  return {
+    water: dose * 0.35,
+    cooling: dose * (style === 'stream' ? 40 : 25) * cooling,
+    combustion: dose * (style === 'stream' ? 0.16 : 0.2),
+    steam: dose * (style === 'stream' ? 0.4 : 0.25),
+  };
 }
 
 /** Prefer the hottest cell this fire still owns, then the ignition tile. */
@@ -85,7 +112,9 @@ function syncIgnition(world: World): Set<string> {
       }
       continue;
     }
-    const cell = existing ?? fresh(tile, materialAt(world, tile), entity.id);
+    const material = materialForTile(world, tile);
+    const cell = existing ?? fresh(tile, material, entity.id);
+    cell.materialId = material.id;
     cell.combustion = Math.min(1, entity.fire.intensity / entity.fire.maxIntensity);
     cell.fuel = entity.fire.fuel;
     cell.temperature = Math.max(cell.temperature, AMBIENT_TEMPERATURE + cell.combustion * 220);
@@ -104,12 +133,17 @@ function spread(world: World, live: Set<string>): void {
     for (const target of spreadTargets(world, cell)) {
       const id = hazardKey(target.x, target.y);
       if (live.has(id)) continue;
-      const material = materialAt(world, target);
+      const material = materialForTile(world, target);
       const current = pending.get(id) ?? world.hazards.get(id);
       const next = current ? { ...current } : fresh(target, material, cell.sourceId);
-      const gain = 0.012 * material.flammability * cell.combustion * (1 - next.water);
+      next.temperature = Math.min(360, next.temperature + 2 * cell.combustion * material.conductivity);
+      if (next.temperature < material.ignition) {
+        pending.set(id, next);
+        continue;
+      }
+      const oxygen = oxygenAt(world, target);
+      const gain = 0.012 * material.combustibility * cell.combustion * (1 - next.water) * oxygen;
       next.combustion = Math.min(1, next.combustion + gain);
-      next.temperature = Math.min(360, next.temperature + 2 * cell.combustion);
       pending.set(id, next);
     }
   }
@@ -125,7 +159,7 @@ function moveSmoke(world: World): void {
   for (const key of [...world.hazards.keys()].sort()) {
     const cell = world.hazards.get(key);
     if (!cell) continue;
-    const produced = 0.05 * cell.combustion;
+    const produced = 0.05 * cell.combustion * materialById(cell.materialId).smokeYield;
     const open = openNeighbors(world, { x: cell.x, y: cell.y });
     if (open.length === 0) {
       delta.set(key, (delta.get(key) ?? 0) + produced - cell.smoke * 0.01);
@@ -147,7 +181,8 @@ function moveSmoke(world: World): void {
       if (change < 0.001) continue;
       const tile = tileFromKey(key);
       if (!tile || barrier(world, tile)) continue;
-      cell = fresh(tile, materialAt(world, tile), born.get(key) ?? 'smoke');
+      const material = materialForTile(world, tile);
+      cell = fresh(tile, material, born.get(key) ?? 'smoke');
       cell.fuel = 0;
       cell.combustion = 0;
       world.hazards.set(key, cell);
@@ -161,11 +196,25 @@ function settle(world: World, live: Set<string>): void {
     const cell = world.hazards.get(key);
     if (!cell) continue;
     cell.water = Math.max(0, cell.water * 0.992);
+    cell.steam = Math.max(0, cell.steam * 0.9);
+    cell.char = clamp(cell.char + cell.combustion * 0.0015, 0, 1);
     if (live.has(key)) continue;
-    cell.fuel = Math.max(0, cell.fuel - 0.008 * cell.combustion);
-    if (cell.fuel <= 0) cell.combustion = Math.max(0, cell.combustion - 0.04);
-    const cooled = cell.temperature + (AMBIENT_TEMPERATURE - cell.temperature) * 0.03;
-    cell.temperature = clamp(cooled + cell.combustion * 5, AMBIENT_TEMPERATURE, 360);
+    const material = materialById(cell.materialId);
+    const oxygen = oxygenAt(world, { x: cell.x, y: cell.y });
+    if (oxygen < 0.35 && cell.combustion > 0) {
+      cell.combustion = Math.max(0, cell.combustion - 0.015);
+      noteHazard(
+        world,
+        `limited:${cell.sourceId}:${roomAt(world, cell)?.id ?? key}`,
+        'The fire is ventilation-limited.',
+      );
+    } else {
+      cell.fuel = Math.max(0, cell.fuel - material.burnRate * cell.combustion);
+      if (cell.fuel <= 0) cell.combustion = Math.max(0, cell.combustion - 0.04);
+      const loss = cell.water > 0.2 ? 0.02 : 0.005;
+      const cooled = cell.temperature + (AMBIENT_TEMPERATURE - cell.temperature) * loss;
+      cell.temperature = clamp(cooled + cell.combustion * 5 * material.heatRelease, AMBIENT_TEMPERATURE, 360);
+    }
   }
 }
 
@@ -191,8 +240,9 @@ function expose(world: World): void {
     if (!entity.position || entity.responder?.aboardVehicleId) continue;
     const tile = tileOf(entity.position);
     const cell = world.hazards.get(hazardKey(tile.x, tile.y));
-    const smoke = cell?.smoke ?? 0;
-    const temperature = cell?.temperature ?? AMBIENT_TEMPERATURE;
+    const room = roomAt(world, tile);
+    const smoke = Math.max(cell?.smoke ?? 0, room?.smoke ?? 0);
+    const temperature = Math.max(cell?.temperature ?? AMBIENT_TEMPERATURE, room?.lowerTemp ?? AMBIENT_TEMPERATURE);
     const hazardous = smoke > 0.25 || temperature > 80;
     const pack = breathingPack(world, entity.id);
     let exposure = world.exposure.get(entity.id) ?? 0;
@@ -286,13 +336,13 @@ function spreadTargets(world: World, cell: HazardCell): Tile[] {
   for (const step of STEPS) {
     const next = { x: cell.x + step.x, y: cell.y + step.y };
     if (barrier(world, next)) continue;
-    if (materialAt(world, next).flammability > 0) {
+    if (materialForTile(world, next).combustibility > 0) {
       targets.push(next);
       continue;
     }
     if (!openDoor(world, next)) continue;
     const beyond = { x: next.x + step.x, y: next.y + step.y };
-    if (barrier(world, beyond) || materialAt(world, beyond).flammability <= 0) continue;
+    if (barrier(world, beyond) || materialForTile(world, beyond).combustibility <= 0) continue;
     targets.push(beyond);
   }
   return targets;
@@ -310,16 +360,6 @@ function openNeighbors(world: World, tile: Tile): Tile[] {
 function barrier(world: World, tile: Tile): boolean {
   if (!inBounds(world.width, world.height, tile)) return true;
   return !isWalkable(world.width, world.height, world.blocked, tile);
-}
-
-function materialAt(world: World, tile: Tile): { flammability: number; fuel: number } {
-  for (const room of world.rooms.values()) {
-    if (room.tiles.some((candidate) => candidate.x === tile.x && candidate.y === tile.y)) {
-      return { flammability: 0.45, fuel: 40 };
-    }
-  }
-  if (openDoor(world, tile)) return { flammability: 0.08, fuel: 1 };
-  return { flammability: 0, fuel: 0 };
 }
 
 function openDoor(world: World, tile: Tile): boolean {
@@ -349,11 +389,7 @@ function breathingPack(world: World, responderId: string): EquipmentInstance | u
     .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0];
 }
 
-function fresh(
-  tile: Tile,
-  material: { flammability: number; fuel: number },
-  sourceId: string,
-): HazardCell {
+function fresh(tile: Tile, material: Material, sourceId: string): HazardCell {
   return {
     x: tile.x,
     y: tile.y,
@@ -363,6 +399,11 @@ function fresh(
     smoke: 0,
     water: 0,
     sourceId,
+    materialId: material.id,
+    char: 0,
+    steam: 0,
+    hotspot: false,
+    revealed: false,
   };
 }
 

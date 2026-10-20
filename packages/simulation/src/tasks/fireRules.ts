@@ -5,7 +5,7 @@ import type { World } from '../core/world.ts';
 import type { Entity } from '../entities/Entity.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { isWalkable, tileOf } from '../navigation/grid.ts';
-import { fireControlled } from '../systems/hazardQuery.ts';
+import { fireControlled, roomOverhauled } from '../systems/hazardQuery.ts';
 import { CommandRejection } from './results.ts';
 import type { SuppressFireTask, Task } from './types.ts';
 import { approachTiles, blocksPedestrian, canTakeFrom } from './vehicleRules.ts';
@@ -15,6 +15,10 @@ export const SUPPRESS_CAPABILITY = 'suppress';
 export function evaluateIncidents(world: World): void {
   for (const objective of world.objectives.values()) {
     if (objective.state === 'satisfied') continue;
+    if (objective.kind === 'overhaul-room') {
+      if (roomOverhauled(world, objective.targetId)) objective.state = 'satisfied';
+      continue;
+    }
     const fire = world.entities.get(objective.targetId)?.fire;
     if (fire && fireControlled(world, objective.targetId)) objective.state = 'satisfied';
   }

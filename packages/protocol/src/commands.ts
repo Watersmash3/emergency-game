@@ -205,6 +205,16 @@ export const commandSchema = z.discriminatedUnion('type', [
     teamId: z.string().min(1),
     buildingId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal('ventilate'),
+    responderId: z.string().min(1),
+    openingId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('overhaul-room'),
+    responderId: z.string().min(1),
+    roomId: z.string().min(1),
+  }),
 ]);
 
 export type Command = z.infer<typeof commandSchema>;

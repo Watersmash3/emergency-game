@@ -57,6 +57,13 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       state: 'idle',
     },
     {
+      id: 'window-west',
+      name: 'West window',
+      objectType: 'window',
+      position: { x: 8, y: 11 },
+      state: 'closed',
+    },
+    {
       id: 'door-interior',
       name: 'Interior door',
       objectType: 'door',
@@ -220,6 +227,14 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       id: 'incident-training',
       name: 'Training fire',
       objectives: [{ id: 'objective-suppress', kind: 'suppress-fire', targetId: 'fire-training' }],
+    },
+  ],
+  furnishings: [
+    {
+      id: 'couch-entry',
+      name: 'Couch',
+      position: { x: 9, y: 11 },
+      materialId: 'upholstery',
     },
   ],
   team: {

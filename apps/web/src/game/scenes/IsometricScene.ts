@@ -318,8 +318,10 @@ export class IsometricScene extends Phaser.Scene {
       image.setOrigin(asset.originX, asset.originY);
       image.setPosition(screen.x, screen.y);
       image.setDepth(screen.y + 0.8);
-      image.setAlpha(revealed && wall.role === 'near' ? 0.55 : 1);
-      image.setVisible(revealed || wall.role !== 'partition');
+      const damage = useGameStore.getState().snapshot?.damage.find((item) => item.x === wall.x && item.y === wall.y);
+      image.setAlpha(damage?.failed ? 0 : revealed && wall.role === 'near' ? 0.55 : 1);
+      image.setTint(damage && !damage.failed ? 0xc47a4a : 0xffffff);
+      image.setVisible(!damage?.failed && (revealed || wall.role !== 'partition'));
     }
     for (const [key, image] of this.wallSprites) {
       if (!alive.has(key)) image.setVisible(false);
@@ -387,6 +389,7 @@ export class IsometricScene extends Phaser.Scene {
         this.objectSprites.set(object.id, view);
       }
       view.token.setTexture(asset.key);
+      view.token.setTint(object.objectType === 'window' ? (object.state === 'open' ? 0xd7f3ff : 0x6aa4c8) : 0xffffff);
       view.token.setOrigin(asset.originX, asset.originY);
       view.token.setPosition(screen.x, screen.y);
       view.label.setPosition(screen.x, screen.y - 36);
@@ -440,16 +443,46 @@ export class IsometricScene extends Phaser.Scene {
       const inside = tileInsideRoom(snapshot, cell.x, cell.y);
       if (inside && !open) continue;
       const screen = worldToScreen(cell.x + 0.5, cell.y + 0.5);
-      if (cell.smoke > 0.08 || cell.temperature > 90) {
+      const debug = useGameStore.getState().debug;
+      const thermal = useGameStore.getState().thermalView || debug;
+      const hiddenHotspot = cell.hotspot && !cell.revealed && !debug;
+      const showHotspot = cell.hotspot && (cell.revealed || debug);
+      if (!hiddenHotspot && (cell.smoke > 0.08 || cell.temperature > 90 || thermal)) {
         const key = `smoke:${cell.x},${cell.y}`;
         wanted.add(key);
         const image = this.hazardSprites.get(key) ?? this.add.image(screen.x, screen.y, 'hazard-smoke');
         const heat = cell.temperature > 110;
-        image.setPosition(screen.x, screen.y);
+        image.setPosition(screen.x, screen.y - (cell.smoke > 0.2 ? 10 : 0));
         image.setDepth(screen.y + 1.2);
-        image.setAlpha(Math.min(0.7, cell.smoke * 0.75 + (heat ? 0.14 : 0)));
-        image.setTint(heat ? 0xffb060 : 0xc5ced6);
+        image.setAlpha(thermal ? 0.45 : Math.min(0.7, cell.smoke * 0.75 + (heat ? 0.14 : 0)));
+        image.setTint(thermal ? thermalTint(cell.temperature) : heat ? 0xffb060 : 0xc5ced6);
         this.hazardSprites.set(key, image);
+      }
+      if (cell.steam > 0.15) {
+        const key = `steam:${cell.x},${cell.y}`;
+        wanted.add(key);
+        const image = this.hazardSprites.get(key) ?? this.add.image(screen.x, screen.y, 'hazard-smoke');
+        image.setPosition(screen.x, screen.y - 18);
+        image.setDepth(screen.y + 4);
+        image.setAlpha(Math.min(0.55, cell.steam));
+        image.setTint(0xf4f7fb);
+        image.setScale(0.7);
+        this.hazardSprites.set(key, image);
+      }
+      if (showHotspot) {
+        const key = `hot:${cell.x},${cell.y}`;
+        wanted.add(key);
+        const image = this.hazardSprites.get(key) ?? this.add.image(screen.x, screen.y, assets.fireOut.key);
+        image.setPosition(screen.x, screen.y - 4);
+        image.setDepth(screen.y + 3.2);
+        image.setScale(0.45);
+        image.setTint(0xffc14a);
+        this.hazardSprites.set(key, image);
+      }
+      const floor = this.tileImages.get(`${cell.x},${cell.y}`);
+      if (floor && !thermal) {
+        if (cell.water > 0.3) floor.setTint(0x8aa4b5);
+        else if (cell.char > 0.25) floor.setTint(0x6a5648);
       }
       const occupied = snapshot.fires.some(
         (fire) => !fire.out && fire.position.x === cell.x && fire.position.y === cell.y,
@@ -868,6 +901,13 @@ export class IsometricScene extends Phaser.Scene {
       );
     }
   }
+}
+
+function thermalTint(temperature: number): number {
+  if (temperature < 40) return 0x3d6ea8;
+  if (temperature < 80) return 0x2f9e44;
+  if (temperature < 140) return 0xf0b429;
+  return 0xe03131;
 }
 
 function marker(graphics: Phaser.GameObjects.Graphics | undefined, x: number, y: number, color: number): void {

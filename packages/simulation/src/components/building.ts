@@ -24,6 +24,12 @@ export interface RoomRecord {
   assigneeId: string | null;
   reservedByTaskId: string | null;
   discoveries: Discovery[];
+  upperTemp: number;
+  lowerTemp: number;
+  smoke: number;
+  oxygen: number;
+  overhauled: boolean;
+  flashed: boolean;
 }
 
 export interface FloorRecord {

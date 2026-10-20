@@ -5,9 +5,9 @@ import { objectTypeSchema, teamDefinitionSchema, tileSchema, vec2Schema } from '
 import { exposureSnapshotSchema, hazardCellSchema, taskStateSchema } from './snapshot.ts';
 
 /** Version of the portable save document. Render snapshots are not save files. */
-export const SAVE_SCHEMA_VERSION = 2;
+export const SAVE_SCHEMA_VERSION = 3;
 
-const SUPPORTED_SAVE_VERSIONS = new Set([1, SAVE_SCHEMA_VERSION]);
+const SUPPORTED_SAVE_VERSIONS = new Set([1, 2, SAVE_SCHEMA_VERSION]);
 
 function waterSave<const K extends string>(kind: K) {
   return z.object({
@@ -134,6 +134,16 @@ export const saveTaskSchema = z.discriminatedUnion('kind', [
     ...saveTaskCommon,
     ...activityFields,
     kind: z.literal('search-building'),
+  }),
+  z.object({
+    ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal('ventilate'),
+  }),
+  z.object({
+    ...saveTaskCommon,
+    ...activityFields,
+    kind: z.literal('overhaul'),
   }),
   z.object({
     ...saveTaskCommon,
@@ -299,7 +309,7 @@ export const saveDocumentSchema = z.object({
     z.object({
       id: z.string().min(1),
       incidentId: z.string().min(1),
-      kind: z.literal('suppress-fire'),
+      kind: z.enum(['suppress-fire', 'overhaul-room']),
       targetId: z.string().min(1),
       state: z.enum(['open', 'satisfied']),
     }),
@@ -388,6 +398,12 @@ export const saveDocumentSchema = z.object({
             found: z.boolean(),
           }),
         ),
+        upperTemp: z.number().default(20),
+        lowerTemp: z.number().default(20),
+        smoke: z.number().nonnegative().default(0),
+        oxygen: z.number().nonnegative().default(1),
+        overhauled: z.boolean().default(false),
+        flashed: z.boolean().default(false),
       }),
     )
     .default([]),
@@ -401,6 +417,28 @@ export const saveDocumentSchema = z.object({
     .default([]),
   hazards: z.array(hazardCellSchema).default([]),
   exposure: z.array(exposureSnapshotSchema).default([]),
+  furnishings: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        x: z.number().int(),
+        y: z.number().int(),
+        materialId: z.string().min(1),
+      }),
+    )
+    .default([]),
+  damage: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        x: z.number().int(),
+        y: z.number().int(),
+        integrity: z.number().nonnegative(),
+        failed: z.boolean(),
+      }),
+    )
+    .default([]),
 });
 
 export type SaveDocument = z.infer<typeof saveDocumentSchema>;
@@ -427,11 +465,15 @@ const MIGRATED_PUMP = {
   delivered: 0,
 } as const;
 
-/** Upgrade a version 1 document to version 2. Later versions are left unchanged. */
+/** Upgrade a version 1 or 2 document to the current schema. */
 export function migrateSave(input: unknown): unknown {
-  if (!isRecord(input) || input.schemaVersion !== 1) return input;
-  const entities = Array.isArray(input.entities) ? input.entities.map(migrateEntity) : input.entities;
-  return { ...input, schemaVersion: SAVE_SCHEMA_VERSION, entities };
+  if (!isRecord(input)) return input;
+  if (input.schemaVersion === 1) {
+    const entities = Array.isArray(input.entities) ? input.entities.map(migrateEntity) : input.entities;
+    return migrateSave({ ...input, schemaVersion: 2, entities });
+  }
+  if (input.schemaVersion === 2) return { ...input, schemaVersion: SAVE_SCHEMA_VERSION };
+  return input;
 }
 
 export function prepareSaveDocument(

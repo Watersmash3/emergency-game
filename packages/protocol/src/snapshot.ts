@@ -171,6 +171,22 @@ export const taskSnapshotSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     ...taskCommonSchema,
+    kind: z.literal('ventilate'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
+    kind: z.literal('overhaul'),
+    targetId: z.string().min(1),
+    step: z.string().min(1),
+    progressTicks: z.number().int().nonnegative(),
+    durationTicks: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ...taskCommonSchema,
     kind: z.literal('interact'),
     targetId: z.string().min(1),
     action: z.enum(['take', 'force', 'operate', 'board', 'exit']),
@@ -280,6 +296,11 @@ export const hazardCellSchema = z.object({
   smoke: z.number().nonnegative(),
   water: z.number().nonnegative(),
   sourceId: z.string().min(1),
+  materialId: z.string().min(1).default('wood'),
+  char: z.number().nonnegative().default(0),
+  steam: z.number().nonnegative().default(0),
+  hotspot: z.boolean().default(false),
+  revealed: z.boolean().default(false),
 });
 
 export type HazardCellSnapshot = z.infer<typeof hazardCellSchema>;
@@ -299,11 +320,13 @@ export const incidentSnapshotSchema = z.object({
   objectives: z.array(
     z.object({
       id: z.string().min(1),
-      kind: z.literal('suppress-fire'),
+      kind: z.enum(['suppress-fire', 'overhaul-room']),
       targetId: z.string().min(1),
       state: z.enum(['open', 'satisfied']),
     }),
   ),
+  phase: z.enum(['developing', 'contained', 'knockdown', 'resolved']).default('developing'),
+  trend: z.enum(['growing', 'steady', 'dying']).default('steady'),
 });
 
 export type IncidentSnapshot = z.infer<typeof incidentSnapshotSchema>;
@@ -376,6 +399,11 @@ export const roomSnapshotSchema = z.object({
       found: z.boolean(),
     }),
   ),
+  upperTemp: z.number().default(20),
+  lowerTemp: z.number().default(20),
+  smoke: z.number().nonnegative().default(0),
+  oxygen: z.number().nonnegative().default(1),
+  overhauled: z.boolean().default(false),
 });
 
 export type RoomSnapshot = z.infer<typeof roomSnapshotSchema>;
@@ -419,6 +447,26 @@ export const simulationSnapshotSchema = z.object({
   rooms: z.array(roomSnapshotSchema),
   hazards: z.array(hazardCellSchema).default([]),
   exposure: z.array(exposureSnapshotSchema).default([]),
+  furnishings: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        position: tileSchema,
+        materialId: z.string().min(1),
+      }),
+    )
+    .default([]),
+  damage: z
+    .array(
+      z.object({
+        x: z.number().int(),
+        y: z.number().int(),
+        integrity: z.number().nonnegative(),
+        failed: z.boolean(),
+      }),
+    )
+    .default([]),
 });
 
 export type SimulationSnapshot = z.infer<typeof simulationSnapshotSchema>;

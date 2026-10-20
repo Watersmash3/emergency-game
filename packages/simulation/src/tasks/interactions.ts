@@ -154,6 +154,8 @@ export function stepTasks(world: World): void {
       case 'close-door':
       case 'search-room':
       case 'search-building':
+      case 'ventilate':
+      case 'overhaul':
         advanceBuildingTask(world, task);
         break;
       default: {

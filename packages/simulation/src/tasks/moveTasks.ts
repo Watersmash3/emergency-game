@@ -109,6 +109,8 @@ function dispatchCommand(world: World, command: Command): CommandResult {
     case 'enter-building':
     case 'search-room':
     case 'search-building':
+    case 'ventilate':
+    case 'overhaul-room':
       return applyBuildingCommand(world, command);
     case 'move-group':
       return moveGroup(world, command.responderIds, command.destination);

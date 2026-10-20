@@ -38,7 +38,7 @@ export const teamDefinitionSchema = z.object({
 
 export type TeamDefinition = z.infer<typeof teamDefinitionSchema>;
 
-export const objectTypeSchema = z.enum(['locker', 'door', 'panel']);
+export const objectTypeSchema = z.enum(['locker', 'door', 'panel', 'window']);
 
 export type ObjectType = z.infer<typeof objectTypeSchema>;
 
@@ -132,7 +132,7 @@ export type FireDefinition = z.infer<typeof fireDefinitionSchema>;
 
 export const objectiveDefinitionSchema = z.object({
   id: z.string().min(1),
-  kind: z.literal('suppress-fire'),
+  kind: z.enum(['suppress-fire', 'overhaul-room']),
   targetId: z.string().min(1),
 });
 
@@ -171,6 +171,15 @@ export const floorDefinitionSchema = z.object({
   rooms: z.array(roomDefinitionSchema).min(1),
 });
 
+export const furnishingDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  position: tileSchema,
+  materialId: z.string().min(1),
+});
+
+export type FurnishingDefinition = z.infer<typeof furnishingDefinitionSchema>;
+
 export const buildingDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -208,6 +217,7 @@ export const scenarioSchema = z.object({
   hydrants: z.array(hydrantDefinitionSchema).default([]),
   incidents: z.array(incidentDefinitionSchema).default([]),
   buildings: z.array(buildingDefinitionSchema).default([]),
+  furnishings: z.array(furnishingDefinitionSchema).default([]),
 });
 
 export type Scenario = z.infer<typeof scenarioSchema>;

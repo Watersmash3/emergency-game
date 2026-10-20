@@ -7,6 +7,11 @@ export interface HazardCell {
   smoke: number;
   water: number;
   sourceId: string;
+  materialId: string;
+  char: number;
+  steam: number;
+  hotspot: boolean;
+  revealed: boolean;
 }
 
 export const AMBIENT_TEMPERATURE = 20;

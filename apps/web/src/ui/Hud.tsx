@@ -20,6 +20,7 @@ export function Hud() {
   const error = useGameStore((state) => state.error);
   const follow = useGameStore((state) => state.follow);
   const debug = useGameStore((state) => state.debug);
+  const thermalView = useGameStore((state) => state.thermalView);
   const savesOpen = useGameStore((state) => state.savesOpen);
   const settingsOpen = useGameStore((state) => state.settingsOpen);
   const rosterOpen = useGameStore((state) => state.rosterOpen);
@@ -122,6 +123,14 @@ export function Hud() {
           <label>
             <input type="checkbox" checked={debug} onChange={() => useGameStore.getState().toggleDebug()} />
             Debug view (D)
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={thermalView}
+              onChange={() => useGameStore.getState().toggleThermal()}
+            />
+            Thermal view
           </label>
           <button type="button" title="Home" onClick={() => useGameStore.getState().requestCamera('fit')}>
             Reset camera
@@ -356,11 +365,19 @@ function IncidentCard({ snapshot }: { snapshot: SimulationSnapshot }) {
       </p>
       <p className="status" data-tone={incident.state === 'active' ? 'danger' : 'ready'}>
         <i />
-        {incident.state === 'active' ? 'Active' : 'Resolved'}
-        {fire && !fire.out ? ` · ${Math.round((fire.intensity / fire.maxIntensity) * 100)}%` : ' · out'}
+        {phaseLabel(incident.phase)}
+        {` · ${trendLabel(incident.trend)}`}
+        {fire && !fire.out ? ` · ${Math.round((fire.intensity / fire.maxIntensity) * 100)}%` : ''}
         {fire
           ? ` · ${snapshot.hazards.filter((cell) => cell.sourceId === fire.id && cell.combustion > 0.05).length} burning`
           : ''}
+        {snapshot.damage.some((item) => item.failed)
+          ? ' · structural failure'
+          : snapshot.damage.some((item) => item.integrity < 0.7)
+            ? ' · structural damage'
+            : ''}
+        {snapshot.hazards.some((cell) => cell.hotspot && cell.revealed) ? ' · hotspot found' : ''}
+        {snapshot.rooms.some((room) => room.overhauled) ? ' · overhaul started' : ''}
       </p>
       <button
         type="button"
@@ -411,6 +428,9 @@ function BuildingCard({
                   </button>
                   <small>
                     {status}
+                    {` · ${heatWord(room.upperTemp)} · ${smokeWord(room.smoke)} · ${visibilityWord(room.smoke)}`}
+                    {room.oxygen < 0.4 ? ' · ventilation-limited' : ''}
+                    {room.overhauled ? ' · overhauled' : ''}
                     {room.discoveries.some((discovery) => discovery.found)
                       ? ` · ${room.discoveries
                           .filter((discovery) => discovery.found)
@@ -644,6 +664,39 @@ function exposureLine(snapshot: SimulationSnapshot, id: string): string {
   return parts.length > 0 ? ` · ${parts.join(' · ')}` : '';
 }
 
+function phaseLabel(phase: SimulationSnapshot['incidents'][number]['phase']): string {
+  if (phase === 'resolved') return 'Resolved';
+  if (phase === 'knockdown') return 'Knockdown';
+  if (phase === 'contained') return 'Contained';
+  return 'Developing';
+}
+
+function trendLabel(trend: SimulationSnapshot['incidents'][number]['trend']): string {
+  if (trend === 'growing') return 'fire growing';
+  if (trend === 'dying') return 'fire dying';
+  return 'fire steady';
+}
+
+function heatWord(temperature: number): string {
+  if (temperature < 40) return 'cool';
+  if (temperature < 90) return 'warm';
+  if (temperature < 160) return 'hot';
+  return 'extreme heat';
+}
+
+function smokeWord(smoke: number): string {
+  if (smoke < 0.08) return 'clear air';
+  if (smoke < 0.3) return 'light smoke';
+  if (smoke < 0.65) return 'heavy smoke';
+  return 'smoke-logged';
+}
+
+function visibilityWord(smoke: number): string {
+  if (smoke < 0.15) return 'good visibility';
+  if (smoke < 0.45) return 'reduced visibility';
+  return 'poor visibility';
+}
+
 function assignment(snapshot: SimulationSnapshot, id: string): string {
   const task = snapshot.tasks.find(
     (candidate) =>
@@ -695,6 +748,8 @@ function describeTask(task: TaskSnapshot): string {
   if (task.kind === 'search-room') return 'Searching room';
   if (task.kind === 'search-building') return 'Searching building';
   if (task.kind === 'open-door') return 'Opening door';
+  if (task.kind === 'ventilate') return 'Ventilating';
+  if (task.kind === 'overhaul') return 'Overhauling';
   if (task.kind === 'close-door') return 'Closing door';
   if (task.kind === 'force-door') return 'Forcing door';
   return task.kind;

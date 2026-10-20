@@ -54,6 +54,9 @@ export const CommandRejection = {
   SupplyClosed: 'Supply is closed',
   AlreadyConnected: 'Already connected',
   EngineNotParked: 'Engine is not parked',
+  OpeningOpen: 'Opening is already open',
+  NothingToOverhaul: 'Nothing to overhaul',
+  UnknownOpening: 'Unknown opening',
 } as const;
 
 export type CommandResult = { ok: true } | { ok: false; reason: string };

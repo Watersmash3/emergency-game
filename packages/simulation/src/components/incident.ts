@@ -7,7 +7,7 @@ export interface IncidentRecord {
 export interface ObjectiveRecord {
   id: string;
   incidentId: string;
-  kind: 'suppress-fire';
+  kind: 'suppress-fire' | 'overhaul-room';
   targetId: string;
   state: 'open' | 'satisfied';
 }

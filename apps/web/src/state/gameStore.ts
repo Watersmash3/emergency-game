@@ -25,6 +25,7 @@ interface GameState {
   savesRevision: number;
   follow: boolean;
   debug: boolean;
+  thermalView: boolean;
   savesOpen: boolean;
   settingsOpen: boolean;
   rosterOpen: boolean;
@@ -49,6 +50,7 @@ interface GameState {
   requestCamera: (mode: CameraMode) => void;
   toggleFollow: () => void;
   toggleDebug: () => void;
+  toggleThermal: () => void;
   setSavesOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   toggleRoster: () => void;
@@ -70,6 +72,7 @@ const initial = {
   savesRevision: 0,
   follow: false,
   debug: false,
+  thermalView: false,
   savesOpen: false,
   settingsOpen: false,
   rosterOpen: true,
@@ -130,6 +133,7 @@ export const useGameStore = create<GameState>((set) => ({
     })),
   toggleFollow: () => set((state) => ({ follow: !state.follow })),
   toggleDebug: () => set((state) => ({ debug: !state.debug })),
+  toggleThermal: () => set((state) => ({ thermalView: !state.thermalView })),
   setSavesOpen: (savesOpen) => set({ savesOpen, settingsOpen: false }),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   toggleRoster: () =>

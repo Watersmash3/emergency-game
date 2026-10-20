@@ -136,6 +136,12 @@ export function exportWorld(world: World): SaveDocument {
         position: { ...discovery.position },
         found: discovery.found,
       })),
+      upperTemp: room.upperTemp,
+      lowerTemp: room.lowerTemp,
+      smoke: room.smoke,
+      oxygen: room.oxygen,
+      overhauled: room.overhauled,
+      flashed: room.flashed,
     })),
     reservedDoors: [...world.reservedDoors.entries()].map(([doorId, taskId]) => ({ doorId, taskId })),
     hazards: [...world.hazards.values()]
@@ -149,6 +155,29 @@ export function exportWorld(world: World): SaveDocument {
         smoke: cell.smoke,
         water: cell.water,
         sourceId: cell.sourceId,
+        materialId: cell.materialId,
+        char: cell.char,
+        steam: cell.steam,
+        hotspot: cell.hotspot,
+        revealed: cell.revealed,
+      })),
+    furnishings: [...world.furnishings.values()]
+      .sort((left, right) => (left.id < right.id ? -1 : 1))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        x: item.x,
+        y: item.y,
+        materialId: item.materialId,
+      })),
+    damage: [...world.damage.entries()]
+      .sort((left, right) => (left[0] < right[0] ? -1 : 1))
+      .map(([id, record]) => ({
+        id,
+        x: record.x,
+        y: record.y,
+        integrity: record.integrity,
+        failed: record.failed,
       })),
     exposure: [...world.exposure.entries()]
       .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
@@ -285,10 +314,27 @@ function worldFromDocument(document: SaveDocument): World {
           smoke: cell.smoke,
           water: cell.water,
           sourceId: cell.sourceId,
+          materialId: cell.materialId,
+          char: cell.char,
+          steam: cell.steam,
+          hotspot: cell.hotspot,
+          revealed: cell.revealed,
         },
       ]),
     ),
     exposure: new Map(document.exposure.map((entry) => [entry.responderId, entry.exposure])),
+    furnishings: new Map(
+      document.furnishings.map((item) => [
+        item.id,
+        { id: item.id, name: item.name, x: item.x, y: item.y, materialId: item.materialId },
+      ]),
+    ),
+    damage: new Map(
+      document.damage.map((record) => [
+        record.id,
+        { x: record.x, y: record.y, integrity: record.integrity, failed: record.failed },
+      ]),
+    ),
     routeEpoch: 1,
   };
 }

@@ -6,6 +6,7 @@ import type { Entity } from '../entities/Entity.ts';
 import type { IncidentRecord, ObjectiveRecord } from '../components/incident.ts';
 import type { RoadNode } from '../navigation/road.ts';
 import type { BuildingRecord, DoorLink, FloorRecord, RoomRecord } from '../components/building.ts';
+import type { DamageRecord, Furnishing } from '../components/environment.ts';
 import type { HazardCell } from '../components/hazard.ts';
 import type { Notice } from '../tasks/notices.ts';
 import type { QueuedOrder } from '../tasks/orders.ts';
@@ -31,6 +32,8 @@ export interface World {
   reservedDoors: Map<string, string>;
   hazards: Map<string, HazardCell>;
   exposure: Map<string, number>;
+  furnishings: Map<string, Furnishing>;
+  damage: Map<string, DamageRecord>;
   routeEpoch: number;
   equipment: Map<string, EquipmentInstance>;
   catalog: Map<string, EquipmentDefinitionRecord>;

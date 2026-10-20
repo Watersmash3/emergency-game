@@ -81,10 +81,10 @@ export function nearestApproach(world: World, from: Tile, tiles: readonly Tile[]
 export function computeInteractionTiles(
   world: Pick<World, 'width' | 'height' | 'blocked'>,
   tile: Tile,
-  objectType: 'locker' | 'door' | 'panel',
+  objectType: 'locker' | 'door' | 'panel' | 'window',
 ): Tile[] {
   const candidates: Tile[] = [];
-  if (objectType !== 'door') candidates.push({ x: tile.x, y: tile.y });
+  if (objectType !== 'door' && objectType !== 'window') candidates.push({ x: tile.x, y: tile.y });
   candidates.push(
     { x: tile.x + 1, y: tile.y },
     { x: tile.x - 1, y: tile.y },
@@ -377,6 +377,8 @@ function invalidReason(world: World, task: Task): string | null {
     case 'open-door':
     case 'close-door':
     case 'search-room':
+    case 'ventilate':
+    case 'overhaul':
       return null;
     default: {
       if (isWaterTask(task)) return null;

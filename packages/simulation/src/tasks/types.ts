@@ -119,6 +119,14 @@ export interface CloseDoorTask extends ActivityTask {
   kind: 'close-door';
 }
 
+export interface VentilateTask extends ActivityTask {
+  kind: 'ventilate';
+}
+
+export interface OverhaulTask extends ActivityTask {
+  kind: 'overhaul';
+}
+
 export type ParentTask =
   | RetrieveEquipmentTask
   | ForceDoorTask
@@ -133,7 +141,9 @@ export type ParentTask =
   | SearchRoomTask
   | SearchBuildingTask
   | OpenDoorTask
-  | CloseDoorTask;
+  | CloseDoorTask
+  | VentilateTask
+  | OverhaulTask;
 
 export type Task = MoveTask | ParentTask | InteractTask;
 
@@ -180,6 +190,8 @@ export function isParentTask(task: Task): task is ParentTask {
     task.kind === 'open-door' ||
     task.kind === 'close-door' ||
     task.kind === 'search-room' ||
-    task.kind === 'search-building'
+    task.kind === 'search-building' ||
+    task.kind === 'ventilate' ||
+    task.kind === 'overhaul'
   );
 }

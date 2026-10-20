@@ -349,6 +349,10 @@ function objectCommand(
       definitionId: item.definitionId,
     };
   }
+  if (object.objectType === 'window') {
+    if (object.state === 'open') return null;
+    return { type: 'ventilate', responderId, openingId: object.id };
+  }
   if (object.objectType === 'door') {
     if (object.state === 'locked') return { type: 'force-door', responderId, doorId: object.id };
     if (object.state === 'closed') return { type: 'open-door', responderId, doorId: object.id };
@@ -380,6 +384,16 @@ function pushBuildingActions(
     });
   }
   const room = snapshot.rooms.find((candidate) => candidate.id === focusRoomId);
+  if (room) {
+    actions.push({
+      id: `overhaul-${room.id}`,
+      label: `Overhaul ${room.name}`,
+      group: 'incident',
+      enabled: true,
+      title: 'Inspect and cool hidden heat. The training fire can be resolved without this.',
+      commands: [{ type: 'overhaul-room', responderId, roomId: room.id }],
+    });
+  }
   if (room && room.state !== 'searched') {
     actions.push({
       id: `search-${room.id}`,
@@ -388,6 +402,16 @@ function pushBuildingActions(
       enabled: true,
       title: 'Search the selected room',
       commands: [{ type: 'search-room', responderId, roomId: room.id }],
+    });
+  }
+  for (const opening of snapshot.objects.filter((object) => object.objectType === 'window' && object.state !== 'open')) {
+    actions.push({
+      id: `vent-${opening.id}`,
+      label: `Ventilate ${opening.name}`,
+      group: 'incident',
+      enabled: true,
+      title: 'Open the window and change the compartment flow',
+      commands: [{ type: 'ventilate', responderId, openingId: opening.id }],
     });
   }
   for (const door of snapshot.objects.filter((object) => object.objectType === 'door')) {

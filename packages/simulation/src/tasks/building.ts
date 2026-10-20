@@ -25,14 +25,22 @@ import {
   spawnInteract,
   spawnMove,
 } from './lifecycle.ts';
-import { noteBuildingBlocked, noteRoomSearched } from './notices.ts';
+import { noteBuildingBlocked, noteHazard, noteRoomSearched } from './notices.ts';
 import { CommandRejection, type CommandResult } from './results.ts';
 import { transition } from './transitions.ts';
-import type { CloseDoorTask, OpenDoorTask, SearchBuildingTask, SearchRoomTask } from './types.ts';
+import type {
+  CloseDoorTask,
+  OpenDoorTask,
+  OverhaulTask,
+  SearchBuildingTask,
+  SearchRoomTask,
+  VentilateTask,
+} from './types.ts';
 import { blocksPedestrian } from './vehicleRules.ts';
 
 export const DOOR_TICKS = 16;
 export const SEARCH_TICKS = 8;
+export const OVERHAUL_TICKS = 24;
 
 export function applyBuildingCommand(
   world: World,
@@ -41,7 +49,9 @@ export function applyBuildingCommand(
     | { type: 'close-door'; responderId: string; doorId: string }
     | { type: 'enter-building'; responderId: string; buildingId: string }
     | { type: 'search-room'; responderId: string; roomId: string }
-    | { type: 'search-building'; teamId: string; buildingId: string },
+    | { type: 'search-building'; teamId: string; buildingId: string }
+    | { type: 'ventilate'; responderId: string; openingId: string }
+    | { type: 'overhaul-room'; responderId: string; roomId: string },
 ): CommandResult {
   switch (command.type) {
     case 'open-door':
@@ -54,6 +64,10 @@ export function applyBuildingCommand(
       return searchRoom(world, command.responderId, command.roomId, 'individual');
     case 'search-building':
       return searchBuilding(world, command.teamId, command.buildingId);
+    case 'ventilate':
+      return ventilate(world, command.responderId, command.openingId);
+    case 'overhaul-room':
+      return overhaulRoom(world, command.responderId, command.roomId);
     default: {
       const unreachable: never = command;
       return unreachable;
@@ -63,7 +77,7 @@ export function applyBuildingCommand(
 
 export function advanceBuildingTask(
   world: World,
-  task: OpenDoorTask | CloseDoorTask | SearchRoomTask | SearchBuildingTask,
+  task: OpenDoorTask | CloseDoorTask | SearchRoomTask | SearchBuildingTask | VentilateTask | OverhaulTask,
 ): void {
   if (task.kind === 'search-building') {
     advanceSearchBuilding(world, task);
@@ -71,6 +85,14 @@ export function advanceBuildingTask(
   }
   if (task.kind === 'search-room') {
     advanceSearchRoom(world, task);
+    return;
+  }
+  if (task.kind === 'ventilate') {
+    advanceVentilate(world, task);
+    return;
+  }
+  if (task.kind === 'overhaul') {
+    advanceOverhaul(world, task);
     return;
   }
   advanceDoorTask(world, task);
@@ -378,6 +400,147 @@ function finishSearch(world: World, task: SearchRoomTask, room: RoomRecord): voi
   completeTask(world, task);
 }
 
+function ventilate(world: World, responderId: string, openingId: string): CommandResult {
+  const opening = world.entities.get(openingId);
+  const kind = opening?.interactable?.objectType;
+  if (kind === 'door') {
+    if (opening?.interactable?.state === 'locked') return { ok: false, reason: CommandRejection.DoorClosed };
+    if (opening?.interactable?.state === 'forced' || opening?.interactable?.state === 'open') {
+      return { ok: false, reason: CommandRejection.OpeningOpen };
+    }
+    return openDoor(world, responderId, openingId);
+  }
+  if (kind !== 'window' || !opening?.interactable || !opening.position) {
+    return { ok: false, reason: CommandRejection.UnknownOpening };
+  }
+  if (opening.interactable.state === 'open') return { ok: false, reason: CommandRejection.OpeningOpen };
+  const person = responder(world, responderId);
+  if (!person.ok) return person;
+  const tile = nearestApproach(world, tileOf(person.entity.position!), opening.interactable.interactionTiles);
+  if (!tile) return { ok: false, reason: CommandRejection.NoPath };
+  const task: VentilateTask = {
+    id: nextIdentifier(world, 'task'),
+    kind: 'ventilate',
+    state: 'pending',
+    assigneeId: responderId,
+    source: 'individual',
+    targetId: openingId,
+    step: 'move-to',
+    approachTile: { ...tile },
+    progressTicks: 0,
+    durationTicks: DOOR_TICKS,
+    reservations: [],
+  };
+  transition(task, 'ready');
+  transition(task, 'running');
+  world.tasks.set(task.id, task);
+  reserveDoor(world, openingId, task.id);
+  overrideWith(world, responderId, task.id);
+  spawnMove(world, task, tile);
+  return { ok: true };
+}
+
+function overhaulRoom(world: World, responderId: string, roomId: string): CommandResult {
+  const person = responder(world, responderId);
+  if (!person.ok) return person;
+  const room = world.rooms.get(roomId);
+  if (!room) return { ok: false, reason: CommandRejection.UnknownRoom };
+  const hot = room.tiles.some((tile) => {
+    const cell = world.hazards.get(`${tile.x},${tile.y}`);
+    return Boolean(cell && (cell.hotspot || cell.temperature > 70 || cell.combustion > 0.05 || cell.smoke > 0.2));
+  });
+  if (!hot && !room.flashed) return { ok: false, reason: CommandRejection.NothingToOverhaul };
+  if (!findPath(world, tileOf(person.entity.position!), room.entrance)) {
+    return { ok: false, reason: CommandRejection.NoPath };
+  }
+  const task: OverhaulTask = {
+    id: nextIdentifier(world, 'task'),
+    kind: 'overhaul',
+    state: 'pending',
+    assigneeId: responderId,
+    source: 'individual',
+    targetId: roomId,
+    step: 'move-to',
+    progressTicks: 0,
+    durationTicks: OVERHAUL_TICKS,
+    reservations: [],
+  };
+  transition(task, 'ready');
+  transition(task, 'running');
+  world.tasks.set(task.id, task);
+  room.reservedByTaskId = task.id;
+  overrideWith(world, responderId, task.id);
+  spawnMove(world, task, room.entrance);
+  return { ok: true };
+}
+
+function advanceVentilate(world: World, task: VentilateTask): void {
+  const opening = world.entities.get(task.targetId);
+  if (opening?.interactable?.objectType !== 'window') {
+    failTask(world, task, CommandRejection.UnknownOpening);
+    return;
+  }
+  if (opening.interactable.state === 'open') {
+    completeTask(world, task);
+    return;
+  }
+  const child = childStatus(world, task.childTaskId);
+  if (child === 'wait') return;
+  if (child === 'failed') {
+    failTask(world, task, CommandRejection.Cancelled);
+    return;
+  }
+  if (child === 'done' && task.step === 'move-to') {
+    spawnInteract(world, task, 'operate', DOOR_TICKS);
+    return;
+  }
+  if (child === 'done') {
+    opening.interactable.state = 'open';
+    completeTask(world, task);
+    return;
+  }
+  if (task.approachTile) spawnMove(world, task, task.approachTile);
+}
+
+function advanceOverhaul(world: World, task: OverhaulTask): void {
+  const room = world.rooms.get(task.targetId);
+  const entity = world.entities.get(task.assigneeId);
+  if (!room || !entity?.position) {
+    failTask(world, task, CommandRejection.UnknownRoom);
+    return;
+  }
+  const child = childStatus(world, task.childTaskId);
+  if (child === 'wait') return;
+  if (child === 'failed') {
+    failTask(world, task, CommandRejection.Cancelled);
+    return;
+  }
+  if (task.step === 'move-to') {
+    if (child !== 'done') {
+      spawnMove(world, task, room.entrance);
+      return;
+    }
+    task.step = 'overhaul';
+    task.progressTicks = 0;
+  }
+  task.progressTicks += 1;
+  if (task.progressTicks < task.durationTicks) return;
+  for (const tile of room.tiles) {
+    const cell = world.hazards.get(`${tile.x},${tile.y}`);
+    if (!cell) continue;
+    cell.revealed = cell.hotspot || cell.temperature > 70 || cell.revealed;
+    cell.temperature = Math.max(20, Math.min(cell.temperature, 36));
+    cell.combustion = 0;
+    cell.water = Math.max(cell.water, 0.55);
+    cell.steam = Math.min(1, cell.steam + (cell.revealed ? 0.35 : 0));
+    cell.hotspot = false;
+  }
+  room.overhauled = true;
+  room.reservedByTaskId = null;
+  noteHazard(world, `overhaul:${room.id}`, `${room.name} overhauled.`);
+  completeTask(world, task);
+}
+
 function doorTask(
   world: World,
   kind: 'open-door' | 'close-door',
@@ -628,6 +791,12 @@ export function loadBuildings(scenario: Scenario): {
           position: { ...discovery.position },
           found: false,
         })),
+        upperTemp: 20,
+        lowerTemp: 20,
+        smoke: 0,
+        oxygen: 1,
+        overhauled: false,
+        flashed: false,
       };
       rooms.set(record.id, record);
       const link = doorLinks.get(door.id);

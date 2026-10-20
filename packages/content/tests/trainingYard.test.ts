@@ -13,6 +13,7 @@ describe('training yard', () => {
       'locker',
       'door',
       'panel',
+      'window',
       'door',
     ]);
     expect(trainingYard.equipment).toHaveLength(10);
