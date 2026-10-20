@@ -22,6 +22,8 @@ import { exposureRows, hazardRows, stepHazards } from '../systems/hazardSystem.t
 import { stepWater } from '../systems/waterSystem.ts';
 import { stepMovement } from '../systems/movementSystem.ts';
 import { stepVehicles, syncOccupants } from '../systems/vehicleSystem.ts';
+import { defaultPlan } from '../components/command.ts';
+import { stepOperations } from '../tasks/command.ts';
 import { evaluateIncidents } from '../tasks/fireRules.ts';
 import { stepTasks } from '../tasks/interactions.ts';
 import { loadBuildings, revealRooms } from '../tasks/building.ts';
@@ -83,6 +85,7 @@ export class Simulation {
     evaluateIncidents(this.world);
     syncOccupants(this.world);
     promoteQueued(this.world);
+    stepOperations(this.world);
     scanStatus(this.world);
   }
 
@@ -431,7 +434,72 @@ function createWorld(scenarioInput: Scenario): World {
       ]),
     ),
     damage: new Map(),
+    pathways: new Set(scenario.pathways.map((tile) => `${tile.x},${tile.y}`)),
+    plans: new Map(scenario.incidents.map((incident) => [incident.id, defaultPlan(incident.id)])),
+    detached: new Set(),
+    zones: [],
+    autonomy: 'standard',
+    assignedIncidentId: null,
+    strategicOrders: [],
     routeEpoch: 0,
+  };
+}
+
+function assignmentRows(world: World): {
+  responderId: string;
+  role: string;
+  detachment: 'none' | 'temporary' | 'permanent';
+}[] {
+  return world.team.memberIds.map((responderId) => {
+    const open = [...world.tasks.values()].filter(
+      (task) =>
+        task.assigneeId === responderId &&
+        (task.state === 'running' || task.state === 'ready' || task.state === 'pending' || task.state === 'suspended'),
+    );
+    const individual = open.some((task) => task.source === 'individual');
+    const active = open.find((task) => task.state === 'running') ?? open[0];
+    const named =
+      active && 'role' in active && typeof active.role === 'string' ? active.role : (active?.kind ?? 'available');
+    const vehicle = world.team.apparatusId
+      ? world.entities.get(world.team.apparatusId)?.vehicle
+      : undefined;
+    const role = named === 'available' && vehicle?.designatedDriverId === responderId ? 'driver' : named;
+    return {
+      responderId,
+      role,
+      detachment: world.detached.has(responderId) ? 'permanent' : individual ? 'temporary' : 'none',
+    };
+  });
+}
+
+function companyView(world: World): SimulationSnapshot['command']['company'] {
+  const active = world.strategicOrders.find(
+    (order) => order.state === 'running' || order.state === 'awaiting' || order.state === 'blocked',
+  );
+  const vehicle = world.team.apparatusId ? world.entities.get(world.team.apparatusId)?.vehicle : undefined;
+  const available = world.team.memberIds.some((memberId) => !world.detached.has(memberId));
+  let readiness: SimulationSnapshot['command']['company']['readiness'] = 'ready';
+  if (!vehicle || !available) readiness = 'unavailable';
+  else if (vehicle.status === 'moving' || vehicle.status === 'boarding') readiness = 'responding';
+  else if (active) readiness = 'committed';
+  const capabilities = new Set<string>();
+  if (vehicle?.pump) capabilities.add('pump');
+  for (const item of world.equipment.values()) {
+    const definition = world.catalog.get(item.definitionId);
+    if (!definition) continue;
+    for (const capability of definition.capabilities) {
+      if (capability === 'supply' || capability === 'attack') capabilities.add(capability);
+      if (capability === 'breathing-apparatus') capabilities.add('scba');
+    }
+  }
+  return {
+    id: world.team.id,
+    name: world.team.name,
+    autonomy: world.autonomy,
+    incidentId: world.assignedIncidentId,
+    readiness,
+    capabilities: [...capabilities].sort(),
+    objective: active ? active.progress : null,
   };
 }
 
@@ -459,6 +527,7 @@ function snapshotOf(world: World): SimulationSnapshot {
         path: movement.path.map((point) => ({ x: point.x, y: point.y })),
         inventory: inventoryOf(world, entity.id),
         ...(responder.aboardVehicleId ? { aboardVehicleId: responder.aboardVehicleId } : {}),
+        detached: world.detached.has(entity.id),
       };
       return snapshot;
     });
@@ -655,6 +724,39 @@ function snapshotOf(world: World): SimulationSnapshot {
       revealed: cell.revealed,
     })),
     exposure: exposureRows(world),
+    pathways: [...world.pathways]
+      .map((key) => {
+        const [x, y] = key.split(',');
+        return { x: Number(x), y: Number(y) };
+      })
+      .sort((left, right) => left.y - right.y || left.x - right.x),
+    command: {
+      plans: [...world.plans.values()]
+        .sort((left, right) => (left.incidentId < right.incidentId ? -1 : 1))
+        .map((plan) => ({
+          incidentId: plan.incidentId,
+          strategy: plan.strategy,
+          phase: plan.phase,
+          order: plan.order,
+          blockedReason: plan.blockedReason,
+          buildingId: plan.buildingId,
+        })),
+      detached: [...world.detached].sort(),
+      zones: world.zones.map((zone) => ({ ...zone })),
+      assignments: assignmentRows(world),
+      company: companyView(world),
+      orders: world.strategicOrders.map((order) => ({
+        id: order.id,
+        kind: order.kind,
+        incidentId: order.incidentId,
+        companyId: order.companyId,
+        priority: order.priority,
+        state: order.state,
+        progress: order.progress,
+        blockedReason: order.blockedReason,
+        decision: order.decision,
+      })),
+    },
     furnishings: [...world.furnishings.values()]
       .sort((left, right) => (left.id < right.id ? -1 : 1))
       .map((item) => ({

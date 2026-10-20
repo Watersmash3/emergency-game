@@ -15,6 +15,7 @@ interface TaskCommon {
 export interface MoveTask extends TaskCommon {
   kind: 'move';
   destination: Tile;
+  policy?: 'direct' | 'avoid-hazard' | 'tactical-entry' | 'withdrawal';
 }
 
 interface ActivityTask extends TaskCommon {

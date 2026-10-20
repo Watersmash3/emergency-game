@@ -215,6 +215,79 @@ export const commandSchema = z.discriminatedUnion('type', [
     responderId: z.string().min(1),
     roomId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal('respond-to-incident'),
+    teamId: z.string().min(1),
+    incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('stage-apparatus'),
+    teamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('suppress-structure-fire'),
+    teamId: z.string().min(1),
+    incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('search-structure'),
+    teamId: z.string().min(1),
+    buildingId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('defend-exposure'),
+    teamId: z.string().min(1),
+    incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('withdraw-team'),
+    teamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('return-to-staging'),
+    teamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('set-strategy'),
+    incidentId: z.string().min(1),
+    strategy: z.enum(['offensive', 'defensive', 'hold', 'rescue', 'containment']),
+  }),
+  z.object({
+    type: z.literal('assign-company'),
+    incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('set-autonomy'),
+    autonomy: z.enum(['standard', 'supervised', 'manual']),
+  }),
+  z.object({
+    type: z.literal('control-fire'),
+    incidentId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('return-to-service'),
+    teamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('approve-decision'),
+  }),
+  z.object({
+    type: z.literal('cancel-objective'),
+  }),
+  z.object({
+    type: z.literal('detach-responder'),
+    responderId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('rejoin-team'),
+    responderId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('place-zone'),
+    incidentId: z.string().min(1),
+    kind: z.enum(['staging', 'assembly', 'search', 'attack', 'exclusion', 'withdrawal']),
+    position: tileSchema,
+  }),
 ]);
 
 export type Command = z.infer<typeof commandSchema>;

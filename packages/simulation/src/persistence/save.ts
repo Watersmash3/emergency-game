@@ -9,6 +9,7 @@ import {
 } from '@emergency/protocol';
 
 import { doorPassable } from '../components/building.ts';
+import { defaultPlan } from '../components/command.ts';
 import type { EquipmentInstance } from '../components/equipment.ts';
 import type { World } from '../core/world.ts';
 import { createRng } from '../core/rng.ts';
@@ -179,6 +180,20 @@ export function exportWorld(world: World): SaveDocument {
         integrity: record.integrity,
         failed: record.failed,
       })),
+    pathways: [...world.pathways]
+      .map((key) => {
+        const [x, y] = key.split(',');
+        return { x: Number(x), y: Number(y) };
+      })
+      .sort((left, right) => left.y - right.y || left.x - right.x),
+    plans: [...world.plans.values()]
+      .sort((left, right) => (left.incidentId < right.incidentId ? -1 : 1))
+      .map((plan) => ({ ...plan })),
+    detached: [...world.detached].sort(),
+    zones: world.zones.map((zone) => ({ ...zone })),
+    autonomy: world.autonomy,
+    assignedIncidentId: world.assignedIncidentId,
+    strategicOrders: world.strategicOrders.map((order) => ({ ...order })),
     exposure: [...world.exposure.entries()]
       .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
       .map(([responderId, exposure]) => ({ responderId, exposure, air: null })),
@@ -193,6 +208,9 @@ export function readSave(input: unknown): SaveWorld | SaveFailure {
   const duplicate = duplicatedId(document);
   if (duplicate) return { ok: false, message: duplicate };
   const world = worldFromDocument(document);
+  for (const incident of world.incidents.values()) {
+    if (!world.plans.has(incident.id)) world.plans.set(incident.id, defaultPlan(incident.id));
+  }
   const message = inconsistent(world);
   if (message) return { ok: false, message };
   return { ok: true, world };
@@ -335,6 +353,13 @@ function worldFromDocument(document: SaveDocument): World {
         { x: record.x, y: record.y, integrity: record.integrity, failed: record.failed },
       ]),
     ),
+    pathways: new Set(document.pathways.map((tile) => `${tile.x},${tile.y}`)),
+    plans: new Map(document.plans.map((plan) => [plan.incidentId, { ...plan }])),
+    detached: new Set(document.detached),
+    zones: document.zones.map((zone) => ({ ...zone })),
+    autonomy: document.autonomy,
+    assignedIncidentId: document.assignedIncidentId,
+    strategicOrders: document.strategicOrders.map((order) => ({ ...order })),
     routeEpoch: 1,
   };
 }
@@ -827,6 +852,7 @@ function exportTask(task: Task): SaveTask {
       ...common,
       kind: 'move',
       destination: { x: task.destination.x, y: task.destination.y },
+      ...(task.policy ? { policy: task.policy } : {}),
     };
   }
   if (task.kind === 'interact') {
@@ -902,6 +928,7 @@ function importTask(task: SaveTask): Task {
       ...copyCommon(task),
       kind: 'move',
       destination: { x: task.destination.x, y: task.destination.y },
+      ...(task.policy ? { policy: task.policy } : {}),
     };
   }
   if (task.kind === 'interact') {

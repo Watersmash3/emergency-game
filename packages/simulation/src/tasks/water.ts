@@ -1070,6 +1070,8 @@ function roleSatisfied(
 
 function freeMember(world: World, parentId: string): string | null {
   for (const memberId of world.team.memberIds) {
+    if (world.detached.has(memberId)) continue;
+    if ((world.exposure.get(memberId) ?? 0) >= 0.85) continue;
     if (world.entities.get(memberId)?.responder?.aboardVehicleId) continue;
     const busy = [...world.tasks.values()].some((task) => {
       if (task.assigneeId !== memberId || !isOpen(task.state)) return false;

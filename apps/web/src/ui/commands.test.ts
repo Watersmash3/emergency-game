@@ -2,7 +2,7 @@ import { trainingYard } from '@emergency/content';
 import { createSimulation } from '@emergency/simulation';
 import { describe, expect, it } from 'vitest';
 
-import { commandActions } from './commands.ts';
+import { commandActions, strategicActions } from './commands.ts';
 
 describe('contextual commands', () => {
   const snapshot = createSimulation(trainingYard).getSnapshot();
@@ -24,9 +24,25 @@ describe('contextual commands', () => {
 
   it('offers team response and fire attack', () => {
     const actions = commandActions(snapshot, { kind: 'team', id: 'engine-1' });
-    expect(actions.find((action) => action.id === 'respond')?.commands[0]?.type).toBe('respond-to');
-    expect(actions.some((action) => action.commands.some((command) => command.type === 'establish-fire-attack'))).toBe(
+    expect(actions.find((action) => action.id === 'respond')?.commands[0]?.type).toBe('respond-to-incident');
+    expect(actions.some((action) => action.commands.some((command) => command.type === 'suppress-structure-fire'))).toBe(
       true,
     );
+  });
+
+  it('offers one control-fire order for the incident', () => {
+    const actions = strategicActions(snapshot, { kind: 'incident', id: 'incident-training' });
+    expect(actions.find((action) => action.id === 'assign')?.commands[0]?.type).toBe('assign-company');
+    expect(actions.find((action) => action.id === 'control-fire')?.enabled).toBe(false);
+    const assigned = {
+      ...snapshot,
+      command: {
+        ...snapshot.command,
+        company: { ...snapshot.command.company, incidentId: 'incident-training' },
+      },
+    };
+    const next = strategicActions(assigned, { kind: 'incident', id: 'incident-training' });
+    expect(next.find((action) => action.id === 'control-fire')?.enabled).toBe(true);
+    expect(next.find((action) => action.id === 'control-fire')?.commands[0]?.type).toBe('control-fire');
   });
 });

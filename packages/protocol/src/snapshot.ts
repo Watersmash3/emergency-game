@@ -48,6 +48,7 @@ export const taskSnapshotSchema = z.discriminatedUnion('kind', [
     ...taskCommonSchema,
     kind: z.literal('move'),
     destination: tileSchema,
+    policy: z.enum(['direct', 'avoid-hazard', 'tactical-entry', 'withdrawal']).optional(),
   }),
   z.object({
     ...taskCommonSchema,
@@ -218,6 +219,7 @@ export const entitySnapshotSchema = z.object({
   path: z.array(vec2Schema),
   inventory: z.array(carriedEquipmentSchema),
   aboardVehicleId: z.string().min(1).optional(),
+  detached: z.boolean().default(false),
 });
 
 export type EntitySnapshot = z.infer<typeof entitySnapshotSchema>;
@@ -467,6 +469,102 @@ export const simulationSnapshotSchema = z.object({
       }),
     )
     .default([]),
+  pathways: z.array(tileSchema).default([]),
+  command: z
+    .object({
+      plans: z
+        .array(
+          z.object({
+            incidentId: z.string().min(1),
+            strategy: z.enum(['offensive', 'defensive', 'hold', 'rescue', 'containment']),
+            phase: z.enum([
+              'idle',
+              'responding',
+              'attacking',
+              'searching',
+              'defending',
+              'withdrawing',
+              'blocked',
+              'complete',
+            ]),
+            order: z.enum(['none', 'respond', 'attack', 'search', 'defend', 'withdraw', 'return']),
+            blockedReason: z.string().nullable(),
+            buildingId: z.string().nullable(),
+          }),
+        )
+        .default([]),
+      detached: z.array(z.string().min(1)).default([]),
+      zones: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            incidentId: z.string().min(1),
+            kind: z.enum(['staging', 'assembly', 'search', 'attack', 'exclusion', 'withdrawal']),
+            x: z.number().int(),
+            y: z.number().int(),
+          }),
+        )
+        .default([]),
+      assignments: z
+        .array(
+          z.object({
+            responderId: z.string().min(1),
+            role: z.string().min(1),
+            detachment: z.enum(['none', 'temporary', 'permanent']),
+          }),
+        )
+        .default([]),
+      company: z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          autonomy: z.enum(['standard', 'supervised', 'manual']),
+          incidentId: z.string().nullable(),
+          readiness: z.enum(['ready', 'responding', 'committed', 'unavailable']),
+          capabilities: z.array(z.string()),
+          objective: z.string().nullable(),
+        })
+        .default({
+          id: '',
+          name: '',
+          autonomy: 'standard',
+          incidentId: null,
+          readiness: 'ready',
+          capabilities: [],
+          objective: null,
+        }),
+      orders: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            kind: z.enum(['respond', 'control-fire', 'withdraw', 'return-to-service']),
+            incidentId: z.string().min(1),
+            companyId: z.string().min(1),
+            priority: z.number().int(),
+            state: z.enum(['running', 'blocked', 'awaiting', 'complete', 'cancelled']),
+            progress: z.string(),
+            blockedReason: z.string().nullable(),
+            decision: z.string().nullable(),
+          }),
+        )
+        .default([]),
+    })
+    .default({
+      plans: [],
+      detached: [],
+      zones: [],
+      assignments: [],
+      orders: [],
+      company: {
+        id: '',
+        name: '',
+        autonomy: 'standard',
+        incidentId: null,
+        readiness: 'ready',
+        capabilities: [],
+        objective: null,
+      },
+    }),
 });
 
 export type SimulationSnapshot = z.infer<typeof simulationSnapshotSchema>;

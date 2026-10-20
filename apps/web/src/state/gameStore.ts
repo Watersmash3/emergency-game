@@ -30,6 +30,7 @@ interface GameState {
   settingsOpen: boolean;
   rosterOpen: boolean;
   detailOpen: boolean;
+  advanced: boolean;
   commandMode: 'move' | null;
   roofMode: RoofMode;
   focusRoomId: string | null;
@@ -55,6 +56,8 @@ interface GameState {
   setSettingsOpen: (open: boolean) => void;
   toggleRoster: () => void;
   toggleDetail: () => void;
+  toggleAdvanced: () => void;
+  selectIncident: (id: string) => void;
   setCommandMode: (mode: 'move' | null) => void;
   setRoofMode: (mode: RoofMode) => void;
   setFocusRoom: (roomId: string | null) => void;
@@ -77,6 +80,7 @@ const initial = {
   settingsOpen: false,
   rosterOpen: true,
   detailOpen: true,
+  advanced: false,
   commandMode: null as 'move' | null,
   roofMode: 'auto' as RoofMode,
   focusRoomId: null as string | null,
@@ -119,6 +123,7 @@ export const useGameStore = create<GameState>((set) => ({
       };
     }),
   selectTeam: (id) => set({ selection: { kind: 'team', id }, commandMode: null }),
+  selectIncident: (id) => set({ selection: { kind: 'incident', id }, commandMode: null }),
   selectObject: (id) => set({ selection: { kind: 'object', id }, commandMode: null }),
   selectVehicle: (id) => set({ selection: { kind: 'vehicle', id }, commandMode: null }),
   selectFire: (id) => set({ selection: { kind: 'fire', id }, commandMode: null }),
@@ -140,6 +145,7 @@ export const useGameStore = create<GameState>((set) => ({
     set((state) => ({ rosterOpen: !state.rosterOpen, layoutToken: state.layoutToken + 1 })),
   toggleDetail: () =>
     set((state) => ({ detailOpen: !state.detailOpen, layoutToken: state.layoutToken + 1 })),
+  toggleAdvanced: () => set((state) => ({ advanced: !state.advanced })),
   setCommandMode: (commandMode) => set({ commandMode }),
   setRoofMode: (roofMode) => set({ roofMode }),
   setFocusRoom: (focusRoomId) => set({ focusRoomId }),

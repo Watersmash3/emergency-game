@@ -160,6 +160,9 @@ export class IsometricScene extends Phaser.Scene {
         const key = `${x},${y}`;
         const asset = this.roadTiles.has(key) ? assets.road : assets.ground(x + y);
         const image = this.add.image(screen.x, screen.y, asset.key);
+        if (snapshot.pathways.some((tile) => tile.x === x && tile.y === y) && !this.roadTiles.has(key)) {
+          image.setTint(0xc9d7c2);
+        }
         image.setOrigin(asset.originX, asset.originY);
         image.setDepth(screen.y);
         this.tileImages.set(key, image);
@@ -698,8 +701,16 @@ export class IsometricScene extends Phaser.Scene {
     const snapshot = useGameStore.getState().snapshot;
     if (!snapshot || !this.pathGraphics) return;
     this.pathGraphics.clear();
+    const selection = useGameStore.getState().selection;
+    const debug = useGameStore.getState().debug;
+    const selected = new Set<string>();
+    if (selection?.kind === 'responders') for (const id of selection.ids) selected.add(id);
+    if (selection?.kind === 'team') {
+      for (const id of snapshot.team.memberIds) selected.add(id);
+    }
     this.pathGraphics.lineStyle(2, 0xf2c14e, 0.9);
     for (const entity of snapshot.entities) {
+      if (!debug && !selected.has(entity.id)) continue;
       const view = this.sprites.get(entity.id);
       if (!view || entity.path.length === 0) continue;
       this.pathGraphics.beginPath();
@@ -711,6 +722,11 @@ export class IsometricScene extends Phaser.Scene {
       }
       this.pathGraphics.strokePath();
       marker(this.pathGraphics, end.x, end.y, 0xf2c14e);
+    }
+    this.pathGraphics.lineStyle(1, 0x7ecbff, 0.45);
+    for (const zone of snapshot.command.zones) {
+      const screen = worldToScreen(zone.x + 0.5, zone.y + 0.5);
+      this.pathGraphics.strokeCircle(screen.x, screen.y, 18);
     }
     snapshot.orders.forEach((order, index) => {
       if (!order.destination) return;

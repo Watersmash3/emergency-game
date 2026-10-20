@@ -3,6 +3,14 @@ import { scenarioSchema, type Scenario, type Tile } from '@emergency/protocol';
 const STRUCTURE_ORIGIN = { x: 8, y: 8 };
 const STRUCTURE_SIZE = 5;
 
+function sidewalk(): Tile[] {
+  const tiles: Tile[] = [];
+  for (let x = 4; x <= 16; x += 1) tiles.push({ x, y: 13 });
+  for (let y = 2; y <= 13; y += 1) tiles.push({ x: 4, y });
+  for (let y = 9; y <= 12; y += 1) tiles.push({ x: 16, y });
+  return tiles;
+}
+
 function structureTiles(): Tile[] {
   const tiles: Tile[] = [];
   for (let y = STRUCTURE_ORIGIN.y; y < STRUCTURE_ORIGIN.y + STRUCTURE_SIZE; y += 1) {
@@ -237,6 +245,7 @@ export const trainingYard: Scenario = scenarioSchema.parse({
       materialId: 'upholstery',
     },
   ],
+  pathways: sidewalk(),
   team: {
     id: 'engine-1',
     name: 'Engine 1',

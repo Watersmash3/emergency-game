@@ -135,6 +135,10 @@ export function noteHazard(world: World, key: string, message: string): void {
   emitNotice(world, key, message, 'warning');
 }
 
+export function noteInfo(world: World, key: string, message: string): void {
+  emitNotice(world, key, message, 'info');
+}
+
 function emitNotice(world: World, key: string, message: string, tone: NoticeTone): void {
   if (world.noticeLatch.has(key)) return;
   world.noticeLatch.add(key);

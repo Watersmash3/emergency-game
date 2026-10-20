@@ -218,6 +218,7 @@ export const scenarioSchema = z.object({
   incidents: z.array(incidentDefinitionSchema).default([]),
   buildings: z.array(buildingDefinitionSchema).default([]),
   furnishings: z.array(furnishingDefinitionSchema).default([]),
+  pathways: z.array(tileSchema).default([]),
 });
 
 export type Scenario = z.infer<typeof scenarioSchema>;

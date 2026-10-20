@@ -326,6 +326,10 @@ export function spawnInteract(
 export function tryResume(world: World, completedTaskId: string): void {
   for (const task of [...world.tasks.values()]) {
     if (task.state !== 'suspended' || task.suspendedByTaskId !== completedTaskId) continue;
+    if (world.detached.has(task.assigneeId) || (world.exposure.get(task.assigneeId) ?? 0) >= 0.85) {
+      abandonTask(world, task);
+      continue;
+    }
     const reason = invalidReason(world, task);
     if (reason) {
       failTask(world, task, reason);

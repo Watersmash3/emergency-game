@@ -3,6 +3,7 @@ import type { Tile, Vec2 } from '@emergency/protocol';
 
 import type { Entity } from '../entities/Entity.ts';
 import { findPath } from '../navigation/aStar.ts';
+import { planRoute } from '../navigation/routes.ts';
 import { sameTile, tileCenter, tileOf } from '../navigation/grid.ts';
 import type { World } from '../core/world.ts';
 import { tryResume } from '../tasks/lifecycle.ts';
@@ -71,7 +72,13 @@ function ensurePath(world: World, entity: Entity, task: MoveTask): void {
     return;
   }
 
-  const path = findPath(world, tileOf(entity.position), task.destination);
+  const from = tileOf(entity.position);
+  const routed =
+    task.policy || world.pathways.size > 0
+      ? (planRoute(world, from, task.destination, task.policy ?? 'direct')?.tiles ??
+        (task.policy && task.policy !== 'direct' ? findPath(world, from, task.destination) : null))
+      : findPath(world, from, task.destination);
+  const path = routed;
   if (!path) {
     transition(task, 'failed');
     task.failureReason = 'No path to destination';

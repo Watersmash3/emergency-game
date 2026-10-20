@@ -40,6 +40,8 @@ export const CommandRejection = {
   ParkingReserved: 'Destination is reserved',
   UnknownFire: 'Unknown fire',
   UnknownIncident: 'Unknown incident',
+  CompanyUnassigned: 'Company is not assigned to this incident',
+  NoDecision: 'No decision is waiting',
   FireOut: 'Fire is out',
   NoSuppressant: 'No suppression equipment',
   AgentSpent: 'Suppression agent exhausted',

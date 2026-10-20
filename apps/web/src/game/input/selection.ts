@@ -6,6 +6,7 @@ export type Selection =
   | { kind: 'fire'; id: string }
   | { kind: 'hydrant'; id: string }
   | { kind: 'hose'; id: string }
+  | { kind: 'incident'; id: string }
   | null;
 
 export interface ScreenRect {

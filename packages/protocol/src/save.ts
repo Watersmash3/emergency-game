@@ -5,9 +5,9 @@ import { objectTypeSchema, teamDefinitionSchema, tileSchema, vec2Schema } from '
 import { exposureSnapshotSchema, hazardCellSchema, taskStateSchema } from './snapshot.ts';
 
 /** Version of the portable save document. Render snapshots are not save files. */
-export const SAVE_SCHEMA_VERSION = 3;
+export const SAVE_SCHEMA_VERSION = 5;
 
-const SUPPORTED_SAVE_VERSIONS = new Set([1, 2, SAVE_SCHEMA_VERSION]);
+const SUPPORTED_SAVE_VERSIONS = new Set([1, 2, 3, 4, SAVE_SCHEMA_VERSION]);
 
 function waterSave<const K extends string>(kind: K) {
   return z.object({
@@ -49,6 +49,7 @@ export const saveTaskSchema = z.discriminatedUnion('kind', [
     ...saveTaskCommon,
     kind: z.literal('move'),
     destination: tileSchema,
+    policy: z.enum(['direct', 'avoid-hazard', 'tactical-entry', 'withdrawal']).optional(),
   }),
   z.object({
     ...saveTaskCommon,
@@ -439,6 +440,60 @@ export const saveDocumentSchema = z.object({
       }),
     )
     .default([]),
+  pathways: z.array(tileSchema).default([]),
+  plans: z
+    .array(
+      z.object({
+        incidentId: z.string().min(1),
+        strategy: z.enum(['offensive', 'defensive', 'hold', 'rescue', 'containment']),
+        phase: z.enum([
+          'idle',
+          'responding',
+          'attacking',
+          'searching',
+          'defending',
+          'withdrawing',
+          'blocked',
+          'complete',
+        ]),
+        order: z.enum(['none', 'respond', 'attack', 'search', 'defend', 'withdraw', 'return']),
+        blockedReason: z.string().nullable(),
+        buildingId: z.string().nullable(),
+      }),
+    )
+    .default([]),
+  detached: z.array(z.string().min(1)).default([]),
+  autonomy: z.enum(['standard', 'supervised', 'manual']).default('standard'),
+  assignedIncidentId: z.string().nullable().default(null),
+  strategicOrders: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.enum(['respond', 'control-fire', 'withdraw', 'return-to-service']),
+        incidentId: z.string().min(1),
+        companyId: z.string().min(1),
+        priority: z.number().int(),
+        state: z.enum(['running', 'blocked', 'awaiting', 'complete', 'cancelled']),
+        progress: z.string(),
+        blockedReason: z.string().nullable(),
+        decision: z.string().nullable(),
+        approved: z.boolean(),
+        committed: z.boolean(),
+        posted: z.boolean(),
+      }),
+    )
+    .default([]),
+  zones: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        incidentId: z.string().min(1),
+        kind: z.enum(['staging', 'assembly', 'search', 'attack', 'exclusion', 'withdrawal']),
+        x: z.number().int(),
+        y: z.number().int(),
+      }),
+    )
+    .default([]),
 });
 
 export type SaveDocument = z.infer<typeof saveDocumentSchema>;
@@ -465,14 +520,16 @@ const MIGRATED_PUMP = {
   delivered: 0,
 } as const;
 
-/** Upgrade a version 1 or 2 document to the current schema. */
+/** Upgrade an older document to the current schema. */
 export function migrateSave(input: unknown): unknown {
   if (!isRecord(input)) return input;
   if (input.schemaVersion === 1) {
     const entities = Array.isArray(input.entities) ? input.entities.map(migrateEntity) : input.entities;
     return migrateSave({ ...input, schemaVersion: 2, entities });
   }
-  if (input.schemaVersion === 2) return { ...input, schemaVersion: SAVE_SCHEMA_VERSION };
+  if (input.schemaVersion === 2) return migrateSave({ ...input, schemaVersion: 3 });
+  if (input.schemaVersion === 3) return migrateSave({ ...input, schemaVersion: 4 });
+  if (input.schemaVersion === 4) return { ...input, schemaVersion: SAVE_SCHEMA_VERSION };
   return input;
 }
 

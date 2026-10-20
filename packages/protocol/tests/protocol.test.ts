@@ -76,10 +76,10 @@ describe('protocol schemas', () => {
   });
 
   it('rejects a save from another schema version', () => {
-    const result = saveDocumentSchema.safeParse({ schemaVersion: 4 });
+    const result = saveDocumentSchema.safeParse({ schemaVersion: 6 });
     expect(result.success).toBe(false);
-    expect(saveSchemaMessage({ schemaVersion: 4 })).toBe(
-      'This save uses schema version 4 and cannot be loaded.',
+    expect(saveSchemaMessage({ schemaVersion: 6 })).toBe(
+      'This save uses schema version 6 and cannot be loaded.',
     );
     expect(saveSchemaMessage({ schemaVersion: 1 })).toBe('This save is invalid or incomplete.');
   });

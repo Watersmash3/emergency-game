@@ -2,7 +2,7 @@ import type { SimulationSnapshot, TaskSnapshot } from '@emergency/protocol';
 import { useEffect } from 'react';
 
 import { sendCommand, useGameStore, type Selection } from '../state/gameStore.ts';
-import { commandActions, type CommandAction, type CommandGroup } from './commands.ts';
+import { commandActions, strategicActions, type CommandAction, type CommandGroup } from './commands.ts';
 import { Saves } from './Saves.tsx';
 
 const GROUPS: { id: CommandGroup; label: string }[] = [
@@ -26,6 +26,7 @@ export function Hud() {
   const rosterOpen = useGameStore((state) => state.rosterOpen);
   const detailOpen = useGameStore((state) => state.detailOpen);
   const commandMode = useGameStore((state) => state.commandMode);
+  const advanced = useGameStore((state) => state.advanced);
   const roofMode = useGameStore((state) => state.roofMode);
   const focusRoomId = useGameStore((state) => state.focusRoomId);
 
@@ -71,6 +72,7 @@ export function Hud() {
   }
 
   const actions = commandActions(snapshot, selection, focusRoomId);
+  const strategic = strategicActions(snapshot, selection);
   const notices = [...snapshot.notices].reverse().slice(0, 4);
 
   return (
@@ -182,7 +184,7 @@ export function Hud() {
               Hide
             </button>
           </header>
-          <IncidentCard snapshot={snapshot} />
+          <IncidentCard snapshot={snapshot} selection={selection} />
           <BuildingCard snapshot={snapshot} focusRoomId={focusRoomId} />
           <SelectionCard snapshot={snapshot} selection={selection} />
         </aside>
@@ -208,10 +210,41 @@ export function Hud() {
 
       <footer className="commandbar">
         <div className="command-head">
-          <h2>Tactical commands</h2>
+          <h2>Command</h2>
           {commandMode === 'move' ? <p className="hint">Click the map to move. Shift queues.</p> : null}
         </div>
-        {GROUPS.map((group) => {
+        <div className="command-group">
+          <span>Incident</span>
+          <div>
+            {strategic
+              .filter((action) => action.group === 'incident')
+              .map((action) => (
+                <CommandButton key={action.id} action={action} armed={false} />
+              ))}
+            <button
+              type="button"
+              aria-pressed={advanced}
+              title="Show individual and crew tasks"
+              onClick={() => useGameStore.getState().toggleAdvanced()}
+            >
+              Crew tasks
+            </button>
+          </div>
+        </div>
+        {strategic.some((action) => action.group === 'team') ? (
+          <div className="command-group">
+            <span>Autonomy</span>
+            <div>
+              {strategic
+                .filter((action) => action.group === 'team')
+                .map((action) => (
+                  <CommandButton key={action.id} action={action} armed={false} />
+                ))}
+            </div>
+          </div>
+        ) : null}
+        {advanced
+          ? GROUPS.map((group) => {
           const items = actions.filter((action) => action.group === group.id);
           if (items.length === 0) return null;
           return (
@@ -224,7 +257,8 @@ export function Hud() {
               </div>
             </div>
           );
-        })}
+        })
+          : null}
       </footer>
 
       {savesOpen ? (
@@ -252,7 +286,8 @@ function CommandButton({ action, armed }: { action: CommandAction; armed: boolea
       type="button"
       title={action.title}
       disabled={!action.enabled}
-      className={armed ? 'active' : undefined}
+      className={armed || action.pressed ? 'active' : undefined}
+      aria-pressed={action.pressed}
       onClick={() => {
         if (!action.enabled) return;
         if (action.id === 'move') {
@@ -353,15 +388,26 @@ function UnitList({ snapshot, selection }: { snapshot: SimulationSnapshot; selec
   );
 }
 
-function IncidentCard({ snapshot }: { snapshot: SimulationSnapshot }) {
-  const incident = snapshot.incidents.find((item) => item.state === 'active') ?? snapshot.incidents[0];
+function IncidentCard({ snapshot, selection }: { snapshot: SimulationSnapshot; selection: Selection }) {
+  const incident =
+    (selection?.kind === 'incident'
+      ? snapshot.incidents.find((item) => item.id === selection.id)
+      : undefined) ??
+    snapshot.incidents.find((item) => item.state === 'active') ??
+    snapshot.incidents[0];
   const fire = snapshot.fires.find((item) => incident?.objectives.some((objective) => objective.targetId === item.id));
   if (!incident) return null;
   return (
     <section className="detail">
       <h3>Active incident</h3>
       <p>
-        <strong>{incident.name}</strong>
+        <button
+          type="button"
+          aria-pressed={selection?.kind === 'incident' && selection.id === incident.id}
+          onClick={() => useGameStore.getState().selectIncident(incident.id)}
+        >
+          <strong>{incident.name}</strong>
+        </button>
       </p>
       <p className="status" data-tone={incident.state === 'active' ? 'danger' : 'ready'}>
         <i />
@@ -379,6 +425,7 @@ function IncidentCard({ snapshot }: { snapshot: SimulationSnapshot }) {
         {snapshot.hazards.some((cell) => cell.hotspot && cell.revealed) ? ' · hotspot found' : ''}
         {snapshot.rooms.some((room) => room.overhauled) ? ' · overhaul started' : ''}
       </p>
+      <CommandPlan snapshot={snapshot} incidentId={incident.id} />
       <button
         type="button"
         title="Zoom to the incident"
@@ -391,6 +438,53 @@ function IncidentCard({ snapshot }: { snapshot: SimulationSnapshot }) {
       </button>
     </section>
   );
+}
+
+function CommandPlan({ snapshot, incidentId }: { snapshot: SimulationSnapshot; incidentId: string }) {
+  const plan = snapshot.command.plans.find((item) => item.incidentId === incidentId);
+  const company = snapshot.command.company;
+  const order = snapshot.command.orders.find(
+    (item) => item.incidentId === incidentId && item.state !== 'cancelled' && item.state !== 'complete',
+  );
+  const crew = snapshot.command.assignments.filter((item) => item.role !== 'available' || item.detachment !== 'none');
+  const assigned = company.incidentId === incidentId;
+  return (
+    <div>
+      <p>
+        {company.name} · {company.readiness}
+        {assigned ? '' : ' · available'}
+        {` · ${company.autonomy}`}
+      </p>
+      <p>
+        {plan?.strategy ?? 'offensive'}
+        {order ? ` · ${order.progress}` : plan ? ` · ${plan.phase}` : ' · idle'}
+        {order?.blockedReason ? ` · ${order.blockedReason}` : ''}
+        {order?.decision ? ` · ${order.decision}` : ''}
+      </p>
+      {crew.length > 0 ? (
+        <ul className="queue">
+          {crew.map((assignment) => (
+            <li key={assignment.responderId}>
+              <small>
+                {snapshot.entities.find((entity) => entity.id === assignment.responderId)?.name ?? assignment.responderId}
+                {` · ${roleLabel(assignment.role)}`}
+                {assignment.detachment === 'permanent' ? ' · detached' : ''}
+                {assignment.detachment === 'temporary' ? ' · override' : ''}
+              </small>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function roleLabel(role: string): string {
+  if (role === 'supply') return 'water supply';
+  if (role === 'pump') return 'pump operator';
+  if (role === 'attack') return 'nozzle';
+  if (role === 'driver') return 'driver';
+  return role;
 }
 
 function BuildingCard({

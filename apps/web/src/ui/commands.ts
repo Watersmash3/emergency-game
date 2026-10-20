@@ -11,6 +11,7 @@ export interface CommandAction {
   enabled: boolean;
   title: string;
   commands: Command[];
+  pressed?: boolean;
 }
 
 export function commandActions(
@@ -206,6 +207,25 @@ function responderActions(
     });
   }
 
+  if (one?.detached) {
+    actions.push({
+      id: 'rejoin',
+      label: 'Rejoin team',
+      group: 'team',
+      enabled: true,
+      title: 'Return this firefighter to crew assignment',
+      commands: [{ type: 'rejoin-team', responderId: one.id }],
+    });
+  } else if (one) {
+    actions.push({
+      id: 'detach',
+      label: 'Detach',
+      group: 'team',
+      enabled: true,
+      title: 'Keep this firefighter off automatic crew tasks',
+      commands: [{ type: 'detach-responder', responderId: one.id }],
+    });
+  }
   pushCancel(actions, snapshot, ids);
   pushClear(actions, snapshot, ids);
   if (one && !one.aboardVehicleId) pushBuildingActions(actions, snapshot, one.id, focusRoomId);
@@ -245,27 +265,60 @@ function teamActions(snapshot: SimulationSnapshot, teamId: string): CommandActio
       },
     );
     if (staging) {
+      const incident = snapshot.incidents.find((item) => item.state === 'active');
       actions.push({
         id: 'respond',
         label: 'Respond',
         group: 'team',
         enabled: true,
-        title: 'Respond to staging and disembark',
-        commands: [
-          { type: 'respond-to', teamId, destinationNodeId: staging.id, disembark: true },
-        ],
+        title: 'Board, drive to staging, and disembark',
+        commands: incident
+          ? [{ type: 'respond-to-incident', teamId, incidentId: incident.id }]
+          : [{ type: 'respond-to', teamId, destinationNodeId: staging.id, disembark: true }],
+      });
+      actions.push({
+        id: 'stage',
+        label: 'Stage apparatus',
+        group: 'team',
+        enabled: true,
+        title: 'Drive Engine 1 to the staging node',
+        commands: [{ type: 'stage-apparatus', teamId }],
+      });
+      actions.push({
+        id: 'return-staging',
+        label: 'Return to staging',
+        group: 'movement',
+        enabled: true,
+        title: 'Walk available firefighters back to staging',
+        commands: [{ type: 'return-to-staging', teamId }],
       });
     }
+    actions.push({
+      id: 'withdraw',
+      label: 'Withdraw',
+      group: 'team',
+      enabled: true,
+      title: 'Pull the crew out of the hazard',
+      commands: [{ type: 'withdraw-team', teamId }],
+    });
   }
   for (const incident of snapshot.incidents.filter((candidate) => candidate.state === 'active')) {
     if (apparatus?.pump) {
       actions.push({
         id: `attack-${incident.id}`,
-        label: 'Deploy hose',
-        group: 'equipment',
+        label: 'Fire attack',
+        group: 'incident',
         enabled: true,
-        title: `Establish a fire attack on ${incident.name}`,
-        commands: [{ type: 'establish-fire-attack', teamId, incidentId: incident.id }],
+        title: `Offensive attack on ${incident.name}. The engine must be parked and a firefighter on foot.`,
+        commands: [{ type: 'suppress-structure-fire', teamId, incidentId: incident.id }],
+      });
+      actions.push({
+        id: `defend-${incident.id}`,
+        label: 'Defend exposure',
+        group: 'incident',
+        enabled: true,
+        title: 'Hold the crew outside and set a defensive strategy',
+        commands: [{ type: 'defend-exposure', teamId, incidentId: incident.id }],
       });
     }
     actions.push({
@@ -284,7 +337,7 @@ function teamActions(snapshot: SimulationSnapshot, teamId: string): CommandActio
       group: 'incident',
       enabled: true,
       title: 'Divide reachable rooms across available firefighters',
-      commands: [{ type: 'search-building', teamId, buildingId: building.id }],
+      commands: [{ type: 'search-structure', teamId, buildingId: building.id }],
     });
   }
   const locker = snapshot.objects.find((object) => object.objectType === 'locker');
@@ -307,13 +360,24 @@ function vehicleActions(snapshot: SimulationSnapshot, vehicleId: string): Comman
   const staging = snapshot.roads.find((road) => road.kind === 'staging');
   const actions: CommandAction[] = [];
   if (vehicle && staging) {
+    const incident = snapshot.incidents.find((item) => item.state === 'active');
     actions.push({
       id: 'drive',
       label: 'Respond',
       group: 'team',
+      enabled: vehicle.status !== 'moving' && Boolean(incident),
+      title: 'Bring the crew to staging and disembark',
+      commands: incident
+        ? [{ type: 'respond-to-incident', teamId: snapshot.team.id, incidentId: incident.id }]
+        : [],
+    });
+    actions.push({
+      id: 'stage',
+      label: 'Stage',
+      group: 'team',
       enabled: vehicle.status !== 'moving',
-      title: 'Drive to staging',
-      commands: [{ type: 'drive-vehicle', vehicleId, destinationNodeId: staging.id }],
+      title: 'Move the apparatus to staging',
+      commands: [{ type: 'stage-apparatus', teamId: snapshot.team.id }],
     });
   }
   if (vehicle) {
@@ -482,6 +546,105 @@ function pushClear(actions: CommandAction[], snapshot: SimulationSnapshot, ids: 
     title: 'Drop queued orders',
     commands: orders.map((order) => ({ type: 'cancel-order', orderId: order.id })),
   });
+}
+
+/** Incident and company orders. Individual tasks stay behind the advanced toggle. */
+export function strategicActions(snapshot: SimulationSnapshot, selection: Selection): CommandAction[] {
+  const incident =
+    (selection?.kind === 'incident'
+      ? snapshot.incidents.find((item) => item.id === selection.id)
+      : undefined) ??
+    snapshot.incidents.find((item) => item.state === 'active') ??
+    snapshot.incidents[0];
+  if (!incident) return [];
+  const company = snapshot.command.company;
+  const plan = snapshot.command.plans.find((item) => item.incidentId === incident.id);
+  const order = snapshot.command.orders.find(
+    (item) => item.incidentId === incident.id && (item.state === 'running' || item.state === 'awaiting' || item.state === 'blocked'),
+  );
+  const actions: CommandAction[] = [];
+  if (company.incidentId !== incident.id) {
+    actions.push({
+      id: 'assign',
+      label: `Assign ${company.name || 'company'}`,
+      group: 'incident',
+      enabled: incident.state === 'active',
+      title: 'Assign the company to this incident',
+      commands: [{ type: 'assign-company', incidentId: incident.id }],
+    });
+  }
+  for (const strategy of ['offensive', 'defensive', 'hold'] as const) {
+    actions.push({
+      id: `strategy-${strategy}`,
+      label: strategy === 'hold' ? 'Hold' : strategy[0]?.toUpperCase() + strategy.slice(1),
+      group: 'incident',
+      enabled: true,
+      pressed: plan?.strategy === strategy,
+      title: strategy === 'hold' ? 'Hold the company outside the hazard' : `Set an ${strategy} strategy`,
+      commands: [{ type: 'set-strategy', incidentId: incident.id, strategy }],
+    });
+  }
+  actions.push({
+    id: 'control-fire',
+    label: 'Control Fire',
+    group: 'incident',
+    enabled: company.incidentId === incident.id && incident.state === 'active' && company.readiness !== 'unavailable',
+    title:
+      company.incidentId === incident.id
+        ? 'One order: respond, stage, and suppress'
+        : 'Assign the company before ordering Control Fire',
+    commands: [{ type: 'control-fire', incidentId: incident.id }],
+  });
+  actions.push({
+    id: 'withdraw-company',
+    label: 'Withdraw',
+    group: 'incident',
+    enabled: true,
+    title: 'Pull the company out of the hazard',
+    commands: [{ type: 'withdraw-team', teamId: snapshot.team.id }],
+  });
+  actions.push({
+    id: 'return-service',
+    label: 'Return to service',
+    group: 'incident',
+    enabled: company.readiness !== 'unavailable',
+    title: 'Cancel the objective and board the apparatus',
+    commands: [{ type: 'return-to-service', teamId: snapshot.team.id }],
+  });
+  if (order?.decision) {
+    actions.push({
+      id: 'approve',
+      label: 'Approve',
+      group: 'incident',
+      enabled: true,
+      title: order.decision,
+      commands: [{ type: 'approve-decision' }],
+    });
+  }
+  if (order && order.state !== 'complete') {
+    actions.push({
+      id: 'cancel-objective',
+      label: 'Cancel objective',
+      group: 'incident',
+      enabled: true,
+      title: 'Stop the company objective and leave completed work in place',
+      commands: [{ type: 'cancel-objective' }],
+    });
+  }
+  if (selection?.kind === 'team' || selection?.kind === 'vehicle') {
+    for (const autonomy of ['standard', 'supervised', 'manual'] as const) {
+      actions.push({
+        id: `autonomy-${autonomy}`,
+        label: autonomy[0]?.toUpperCase() + autonomy.slice(1),
+        group: 'team',
+        enabled: true,
+        pressed: company.autonomy === autonomy,
+        title: `Company autonomy: ${autonomy}`,
+        commands: [{ type: 'set-autonomy', autonomy }],
+      });
+    }
+  }
+  return actions;
 }
 
 function dedupe(actions: CommandAction[]): CommandAction[] {

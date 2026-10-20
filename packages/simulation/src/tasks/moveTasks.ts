@@ -3,6 +3,7 @@ import type { Command, Tile } from '@emergency/protocol';
 import type { World } from '../core/world.ts';
 import { findPath } from '../navigation/aStar.ts';
 import { inBounds, isBlocked, isWalkable, manhattan, tileOf } from '../navigation/grid.ts';
+import { applyOperationalCommand } from './command.ts';
 import { applyBuildingCommand } from './building.ts';
 import { applyInteractionCommand } from './interactions.ts';
 import { cancelTask, clearRoute, isOpen, nextIdentifier, overrideWith } from './lifecycle.ts';
@@ -114,6 +115,24 @@ function dispatchCommand(world: World, command: Command): CommandResult {
       return applyBuildingCommand(world, command);
     case 'move-group':
       return moveGroup(world, command.responderIds, command.destination);
+    case 'respond-to-incident':
+    case 'stage-apparatus':
+    case 'suppress-structure-fire':
+    case 'search-structure':
+    case 'defend-exposure':
+    case 'withdraw-team':
+    case 'return-to-staging':
+    case 'set-strategy':
+    case 'detach-responder':
+    case 'rejoin-team':
+    case 'place-zone':
+    case 'assign-company':
+    case 'set-autonomy':
+    case 'control-fire':
+    case 'return-to-service':
+    case 'approve-decision':
+    case 'cancel-objective':
+      return applyOperationalCommand(world, command);
     case 'enqueue':
     case 'cancel-order':
       return { ok: false, reason: CommandRejection.Unsupported };
@@ -134,6 +153,23 @@ function queueAssignees(world: World, command: Command): string[] {
     case 'suppress-incident':
     case 'establish-fire-attack':
     case 'search-building':
+    case 'respond-to-incident':
+    case 'stage-apparatus':
+    case 'suppress-structure-fire':
+    case 'search-structure':
+    case 'defend-exposure':
+    case 'withdraw-team':
+    case 'return-to-staging':
+      return [...world.team.memberIds];
+    case 'set-strategy':
+    case 'place-zone':
+    case 'assign-company':
+    case 'set-autonomy':
+    case 'approve-decision':
+    case 'cancel-objective':
+      return [];
+    case 'control-fire':
+    case 'return-to-service':
       return [...world.team.memberIds];
     case 'move-group':
       return [...command.responderIds];
@@ -339,11 +375,19 @@ function createMoveTask(
 }
 
 function candidateTiles(world: World, goal: Tile): Tile[] {
+  const reserved = new Set<string>();
+  for (const task of world.tasks.values()) {
+    if (task.kind !== 'move' || (task.state !== 'running' && task.state !== 'ready' && task.state !== 'pending')) {
+      continue;
+    }
+    reserved.add(`${task.destination.x},${task.destination.y}`);
+  }
   const tiles: Tile[] = [];
   for (let y = 0; y < world.height; y += 1) {
     for (let x = 0; x < world.width; x += 1) {
       const tile = { x, y };
       if (!isWalkable(world.width, world.height, world.blocked, tile)) continue;
+      if (reserved.has(`${tile.x},${tile.y}`) && (tile.x !== goal.x || tile.y !== goal.y)) continue;
       tiles.push(tile);
     }
   }
